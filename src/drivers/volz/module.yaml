@@ -1,0 +1,22 @@
+module_name: Volz Driver
+serial_config:
+    - command: volz start -d ${SERIAL_DEV}
+      port_config_param:
+        name: VOLZ_CFG
+        group: Volz
+
+parameters:
+    - group: Volz
+      definitions:
+        VOLZ_CONFIG:
+            description:
+                short: Configure Volz
+                long: |
+                    This enables/disables Volz drivers.
+            type: enum
+            values:
+                0: Disable (use PWM/Oneshot)
+                1: Enable
+            reboot_required: true
+            default: 0
+
