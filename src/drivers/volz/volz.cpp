@@ -61,6 +61,7 @@
 #include <uORB/topics/multirotor_motor_limits.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/esc_status.h>
+#include <termios.h>
 
 
 using namespace time_literals; // TODO: what does this do?
@@ -155,15 +156,15 @@ private:
     int			pwm_ioctl(file *filp, int cmd, unsigned long arg);
     int		capture_ioctl(file *filp, int cmd, unsigned long arg);
 
-    int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
-    int highbyte(int value);
-    int lowbyte(int value);
+    static int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
+    static int highbyte(int value);
+    static int lowbyte(int value);
 
-    Command pos_cmd(float pos, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
-    Command set_actuator_id(int new_id, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
-    Command set_failsafe_timeout(float timeout, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
-    Command set_current_pos_as_failsafe(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
-    Command set_current_pos_as_zero(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command pos_cmd(float pos, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command set_actuator_id(int new_id, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command set_failsafe_timeout(float timeout, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command set_current_pos_as_failsafe(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command set_current_pos_as_zero(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
 
 	VolzOutput(const VolzOutput &) = delete;
 	VolzOutput operator=(const VolzOutput &) = delete;
@@ -225,8 +226,6 @@ VolzOutput::init()
 	update_params();
 
 	// TODO: Find out how this code works (taken from TFMINI.cpp)
-    // status
-    int ret = 0;
 
     do { // create a scope to handle exit conditions using break
 
@@ -409,11 +408,11 @@ int VolzOutput::generate_crc(int cmd, int actuator_id, int arg_1, int arg_2)	{
     return crc;
 }
 
-VolzOutput::Command VolzOutput::pos_cmd(float pos, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1) {
+VolzOutput::Command VolzOutput::pos_cmd(float pos, int id, int num_repetitions) {
     int arg = VOLZ_POS_CENTER + (int)(pos * (VOLZ_POS_CENTER - VOLZ_POS_MIN));
     uint8_t arg_1 = highbyte(arg);
     uint8_t arg_2 = lowbyte(arg);
-    int crc = generate_crc(NEW_POS_CMD, actuator_id, arg_1, arg_2);
+    int crc = generate_crc(volz_command_t::POS_CMD, id, arg_1, arg_2);
     uint8_t crc_1 = highbyte(crc);
     uint8_t crc_2 = lowbyte(crc);
 
@@ -428,7 +427,7 @@ VolzOutput::Command VolzOutput::pos_cmd(float pos, int id = VOLZ_ID_UNKNOWN, int
 
     return command;
 }
-VolzOutput::Command VolzOutput::set_actuator_id(int new_id, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1) {
+VolzOutput::Command VolzOutput::set_actuator_id(int new_id, int id, int num_repetitions) {
     int crc = generate_crc(volz_command_t::SET_ACTUATOR_ID, id, new_id, new_id);
 
     Command command;
@@ -442,7 +441,7 @@ VolzOutput::Command VolzOutput::set_actuator_id(int new_id, int id = VOLZ_ID_UNK
 
     return command;
 }
-VolzOutput::Command VolzOutput::set_failsafe_timeout(float timeout, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1) {
+VolzOutput::Command VolzOutput::set_failsafe_timeout(float timeout, int id, int num_repetitions) {
     int arg = (int)(timeout * 10); // convert from seconds to x100 ms
     int crc = generate_crc(volz_command_t::SET_FAILSAFE_TIMEOUT, id, arg, arg);
 
@@ -457,7 +456,7 @@ VolzOutput::Command VolzOutput::set_failsafe_timeout(float timeout, int id = VOL
 
     return command;
 }
-VolzOutput::Command VolzOutput::set_current_pos_as_failsafe(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1) {
+VolzOutput::Command VolzOutput::set_current_pos_as_failsafe(int id, int num_repetitions) {
     int crc = generate_crc(volz_command_t::SET_CURRENT_POS_AS_FAILSAFE_POS, id, 0x00, 0x00);
 
     Command command;
@@ -471,7 +470,7 @@ VolzOutput::Command VolzOutput::set_current_pos_as_failsafe(int id = VOLZ_ID_UNK
 
     return command;
 }
-VolzOutput::Command VolzOutput::set_current_pos_as_zero(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1) {
+VolzOutput::Command VolzOutput::set_current_pos_as_zero(int id, int num_repetitions) {
     int crc = generate_crc(volz_command_t::SET_CURRENT_POS_AS_ZERO, id, 0x00, 0x00);
 
     Command command;
@@ -509,8 +508,9 @@ VolzOutput::Run()
 
 	_mixing_output.update();
 
+	// TODO: Should this be used somehow?
 	/* update output status if armed or if mixer is loaded */
-	bool outputs_on = _mixing_output.armed().armed || _mixing_output.mixers();
+	// bool outputs_on = _mixing_output.armed().armed || _mixing_output.mixers();
 
 	if (_param_sub.updated()) {
 		update_params();
@@ -654,35 +654,39 @@ int VolzOutput::custom_command(int argc, char *argv[])
 		}
 	}
 
-    struct CustomCommand {
-        const char *name;
-        bool valid;
-        Command command;
-    };
+    if (!is_running()) {
+        PX4_ERR("module not running");
+        return -1;
+    }
 
-	constexpr CustomCommand commands[] = {
-		{"pos_cmd", pos != DISARMED_VALUE, pos_cmd(pos, actuator_id, 5)},
-		{"set_id", new_id != VOLZ_ID_UNKNOWN, set_actuator_id(new_id, actuator_id, 5)},
-        {"set_fs_timeout", timeout >= 0, set_failsafe_timeout(timeout, actuator_id, 5)},
-        {"set_pos_as_fs", true, set_current_pos_as_failsafe(actuator_id, 5)},
-        {"set_pos_as_zero", true, set_current_pos_as_zero(actuator_id, 5)},
-	};
+    if (!strcmp(verb, "pos_cmd")) {
+        if (pos < MIN_VALUE) {
+            PX4_ERR("enter a position between -1 and 1");
+            return -1;
+        } else {
+            return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 5));
+        }
+    } else if (!strcmp(verb, "set_id")) {
+        if (new_id != VOLZ_ID_UNKNOWN) {
+            PX4_ERR("set an ID between 0x01 and 0x1E");
+            return -1;
+        } else {
+            return get_instance()->sendCommandThreadSafe(set_actuator_id(new_id, actuator_id, 5));
+        }
+    } else if (!strcmp(verb, "set_fs_timeout")) {
+        if (timeout < 0) {
+            PX4_ERR("set a timeout between 0 and 12.7 seconds");
+            return -1;
+        } else {
+            return get_instance()->sendCommandThreadSafe(set_failsafe_timeout(timeout, actuator_id, 5));
+        }
+    } else if (!strcmp(verb, "set_pos_as_fs")) {
+        return get_instance()->sendCommandThreadSafe(set_current_pos_as_failsafe(actuator_id, 5));
+    } else if (!strcmp(verb, "set_pos_as_zero")) {
+        return get_instance()->sendCommandThreadSafe(set_current_pos_as_zero(actuator_id, 5));
+    }
 
-	for (unsigned i = 0; i < sizeof(commands) / sizeof(commands[0]); ++i) {
-		if (!strcmp(verb, commands[i].name)) {
-			if (!is_running()) {
-				PX4_ERR("module not running");
-				return -1;
-			} else if (commands[i].valid) {
-                PX4_ERR("not all necessary flags are provided for this command");
-                return -1;
-			}
-
-			return get_instance()->sendCommandThreadSafe(commands[i].command);
-		}
-	}
-
-	if (!is_running()) { // TODO: What does this do?
+    if (!is_running()) { // TODO: What does this do?
 		int ret = VolzOutput::task_spawn(argc, argv);
 
 		if (ret) {
@@ -730,26 +734,26 @@ occur in the mixer file.
 	PRINT_MODULE_USAGE_COMMAND_DESCR("start", "Start the task");
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("pos_cmd", "Command actuator to given position");
-    PRINT_MODULE_USAGE_PARAM_INT("i", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
-    PRINT_MODULE_USAGE_PARAM_FLOAT("p", DISARMED_VALUE, -1, 1, "Position", false);
+    PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
+    PRINT_MODULE_USAGE_PARAM_FLOAT('p', DISARMED_VALUE, -1, 1, "Position", false);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set new actuator ID");
-    PRINT_MODULE_USAGE_PARAM_INT("i", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Old actuator ID", true);
-    PRINT_MODULE_USAGE_PARAM_INT("n", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "New actuator ID", false);
+    PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Old actuator ID", true);
+    PRINT_MODULE_USAGE_PARAM_INT('n', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "New actuator ID", false);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_fs_timeout", "Set amount of seconds after which the actuator "
                                                        "goes into failsafe position, if it does not receive a valid"
                                                        "command");
-    PRINT_MODULE_USAGE_PARAM_INT("i", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
-    PRINT_MODULE_USAGE_PARAM_FLOAT("t", -1, 0x00, 0x7F, "Timeout (s)", false);
+    PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
+    PRINT_MODULE_USAGE_PARAM_FLOAT('t', -1, 0x00, 0x7F, "Timeout (s)", false);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_pos_as_fs", "Set current actuator position as new failsafe "
                                                       "positon");
-    PRINT_MODULE_USAGE_PARAM_INT("i", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
+    PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_pos_as_zero", "Set current actuator position as new "
                                                         "mid-position (zero)");
-    PRINT_MODULE_USAGE_PARAM_INT("i", VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
+    PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
 
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
