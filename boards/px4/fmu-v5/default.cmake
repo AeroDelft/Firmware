@@ -60,6 +60,7 @@ px4_add_board(
 		tone_alarm
 		uavcan
 		volz
+		adafruit_temp
 	MODULES
 		airspeed_selector
 		attitude_estimator_q
