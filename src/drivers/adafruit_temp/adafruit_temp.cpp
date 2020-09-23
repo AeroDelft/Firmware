@@ -32,12 +32,11 @@
  ****************************************************************************/
 
 /**
- * @file sf1xx.cpp
+ * @file adafruit_temp.cpp
  *
- * @author ecmnet <ecm@gmx.de>
- * @author Vasily Evseenko <svpcom@gmail.com>
+ * @author Jakob Schoser <jakob.schoser@aerodelft.nl>
  *
- * Driver for the Lightware SF1xx lidar range finder series.
+ * Driver for the Adafruit temperature sensor.
  * Default I2C address 0x66 is used.
  */
 
@@ -51,6 +50,8 @@
 #include <lib/perf/perf_counter.h>
 #include <drivers/drv_hrt.h>
 #include <drivers/rangefinder/PX4Rangefinder.hpp>
+#include <uORB/topics/adafruit_temp.h>
+#include <uORB/PublicationMulti.hpp>
 
 /* Configuration Constants */
 #define AdafruitTemp_BASEADDR		0x66
@@ -60,8 +61,7 @@
 class AdafruitTemp : public device::I2C, public I2CSPIDriver<AdafruitTemp>
 {
 public:
-	AdafruitTemp(I2CSPIBusOption bus_option, const int bus, const uint8_t rotation, int bus_frequency,
-	      int address = AdafruitTemp_BASEADDR);
+	AdafruitTemp(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address = AdafruitTemp_BASEADDR);
 
 	~AdafruitTemp() override;
 
@@ -105,21 +105,20 @@ private:
 	int measure();
 	int collect();
 
-	PX4Rangefinder _px4_rangefinder;
-
 	bool _sensor_ok{false};
 
 	int _conversion_interval{-1};
 	int _measure_interval{0};
 
+    uORB::Publication<adafruit_temp_s> _adafruit_temp_pub{ORB_ID(adafruit_temp)};
+
 	perf_counter_t _sample_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": read")};
 	perf_counter_t _comms_errors{perf_alloc(PC_COUNT, MODULE_NAME": com err")};
 };
 
-AdafruitTemp::AdafruitTemp(I2CSPIBusOption bus_option, const int bus, const uint8_t rotation, int bus_frequency, int address) :
+AdafruitTemp::AdafruitTemp(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address) :
 	I2C(DRV_DIST_DEVTYPE_SF1XX, MODULE_NAME, bus, address, bus_frequency),
-	I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus),
-	_px4_rangefinder(DRV_DIST_DEVTYPE_SF1XX, ORB_PRIO_DEFAULT, rotation)
+	I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus)
 {
 }
 
@@ -134,6 +133,11 @@ int AdafruitTemp::init()
 {
 	int ret = PX4_ERROR;
 	// param_get(param_find("SENS_EN_SF1XX"), &hw_model); // TODO: Fix parameter
+
+    /* advertise temperature topic */
+    struct adafruit_temp_s temp;
+    memset(&temp, 0, sizeof(temp));
+    orb_advert_t temp_pub = orb_advertise(ORB_ID(adafruit_temp), &temp);
 
 	/* do I2C init (and probe) first */
 	if (I2C::init() != OK) {
@@ -195,13 +199,13 @@ int AdafruitTemp::collect()
     temp = (float) (temp / (float) 16.0);
     if (raw & 0x1000) temp -= 256;
 
-    struct temp_sensor_s report;
+    temp_sensor_s report{};
     report.timestamp = hrt_absolute_time();
     report.temp = temp;  // temporary thing just to test
 
     /* publish it, if we are the primary */
     if (_sensor_topic != nullptr) {
-        orb_publish(ORB_ID(ad_sensor_temp), _sensor_topic, &report);
+        _adafruit_temp_pub.publish(report);
     }
 
     _reports->force(&report);
@@ -252,23 +256,22 @@ void AdafruitTemp::print_usage()
 		R"DESCR_STR(
 ### Description
 
-I2C bus driver for Lightware SFxx series LIDAR rangefinders: SF10/a, SF10/b, SF10/c, SF11/c, SF/LW20.
+I2C bus driver for Adafruit temperature sensor.
 
-Setup/usage information: https://docs.px4.io/master/en/sensor/sfxx_lidar.html
 )DESCR_STR");
 
 	PRINT_MODULE_USAGE_NAME("adafruit_temp", "driver");
-	PRINT_MODULE_USAGE_SUBCATEGORY("distance_sensor");
+	PRINT_MODULE_USAGE_SUBCATEGORY("temperature_sensor");
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_PARAMS_I2C_SPI_DRIVER(true, false);
-	PRINT_MODULE_USAGE_PARAM_INT('R', 25, 1, 25, "Sensor rotation - downward facing by default", true);
-	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
+    PRINT_MODULE_USAGE_PARAM_INT('b', AdafruitTemp_BASEADDR, 1, 25, "Sensor rotation - downward facing by default", true);
+    PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 }
 
 I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const BusInstanceIterator &iterator,
 				      int runtime_instance)
 {
-	AdafruitTemp* instance = new AdafruitTemp(iterator.configuredBusOption(), iterator.bus(), cli.orientation, cli.bus_frequency);
+	AdafruitTemp* instance = new AdafruitTemp(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency);
 
 	if (instance == nullptr) {
 		PX4_ERR("alloc failed");
@@ -289,13 +292,13 @@ extern "C" __EXPORT int adafruit_temp_main(int argc, char *argv[])
 	int ch;
 	using ThisDriver = AdafruitTemp;
 	BusCLIArguments cli{true, false};
-	cli.orientation = distance_sensor_s::ROTATION_DOWNWARD_FACING;
+	cli.i2c_address = AdafruitTemp_BASEADDR;
 	cli.default_i2c_frequency = 400000;
 
-	while ((ch = cli.getopt(argc, argv, "R:")) != EOF) {
+	while ((ch = cli.getopt(argc, argv, "b:")) != EOF) {
 		switch (ch) {
-		case 'R':
-			cli.orientation = atoi(cli.optarg());
+		case 'b':
+			cli.i2c_address = atoi(cli.optarg());
 			break;
 		}
 	}
