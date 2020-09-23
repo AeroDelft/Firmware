@@ -38,6 +38,7 @@ set(msg_files
 	actuator_armed.msg
 	actuator_controls.msg
 	actuator_outputs.msg
+	adafruit_temp.msg
 	adc_report.msg
 	airspeed.msg
 	airspeed_validated.msg

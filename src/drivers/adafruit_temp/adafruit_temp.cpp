@@ -124,6 +124,8 @@ AdafruitTemp::AdafruitTemp(I2CSPIBusOption bus_option, const int bus, int bus_fr
 
 AdafruitTemp::~AdafruitTemp()
 {
+    _adafruit_temp_pub.unadvertise();
+
 	/* free perf counters */
 	perf_free(_sample_perf);
 	perf_free(_comms_errors);
@@ -133,11 +135,6 @@ int AdafruitTemp::init()
 {
 	int ret = PX4_ERROR;
 	// param_get(param_find("SENS_EN_SF1XX"), &hw_model); // TODO: Fix parameter
-
-    /* advertise temperature topic */
-    struct adafruit_temp_s temp;
-    memset(&temp, 0, sizeof(temp));
-    orb_advert_t temp_pub = orb_advertise(ORB_ID(adafruit_temp), &temp);
 
 	/* do I2C init (and probe) first */
 	if (I2C::init() != OK) {
@@ -199,16 +196,12 @@ int AdafruitTemp::collect()
     temp = (float) (temp / (float) 16.0);
     if (raw & 0x1000) temp -= 256;
 
-    temp_sensor_s report{};
-    report.timestamp = hrt_absolute_time();
+    adafruit_temp_s report{};
+    report.timestamp = timestamp_sample;
     report.temp = temp;  // temporary thing just to test
 
     /* publish it, if we are the primary */
-    if (_sensor_topic != nullptr) {
-        _adafruit_temp_pub.publish(report);
-    }
-
-    _reports->force(&report);
+    _adafruit_temp_pub.publish(report);
 
     /* notify anyone waiting for data */
     poll_notify(POLLIN);

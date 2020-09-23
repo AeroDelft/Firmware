@@ -46,4 +46,4 @@
  * @value 5 SF/LW20/b
  * @value 6 SF/LW20/c
  */
-PARAM_DEFINE_INT32(SENS_EN_SF1XX, 0); // TODO: Make actual parameters
+// PARAM_DEFINE_INT32(SENS_EN_SF1XX, 0); // TODO: Make actual parameters
