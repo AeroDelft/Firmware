@@ -54,7 +54,7 @@
 #include <uORB/PublicationMulti.hpp>
 
 /* Configuration Constants */
-#define AdafruitTemp_BASEADDR		0x66
+#define AdafruitTemp_BASEADDR		0b11000
 
 // TODO: Change DRV_DIST_DEVTYPE_SF1XX
 
@@ -133,6 +133,7 @@ AdafruitTemp::~AdafruitTemp()
 
 int AdafruitTemp::init()
 {
+    PX4_INFO("init");
 	int ret = PX4_ERROR;
 	// param_get(param_find("SENS_EN_SF1XX"), &hw_model); // TODO: Fix parameter
 
@@ -154,11 +155,13 @@ int AdafruitTemp::init()
 
 int AdafruitTemp::probe()
 {
+    PX4_INFO("probe");
 	return measure();
 }
 
 int AdafruitTemp::measure()
 {
+    PX4_INFO("measure");
 	/*
 	 * Send the command '0' -- read altitude
 	 */
@@ -178,6 +181,7 @@ int AdafruitTemp::measure()
 
 int AdafruitTemp::collect()
 {
+    PX4_INFO("collect");
 	/* read from the sensor */
 	perf_begin(_sample_perf);
 	uint8_t val[2] {};
@@ -211,6 +215,7 @@ int AdafruitTemp::collect()
 
 void AdafruitTemp::start()
 {
+    PX4_INFO("start");
 	if (_measure_interval == 0) {
 		_measure_interval = _conversion_interval;
 	}
@@ -224,6 +229,7 @@ void AdafruitTemp::start()
 
 void AdafruitTemp::RunImpl()
 {
+    PX4_INFO("run");
 	/* Collect results */
 	if (OK != collect()) {
 		PX4_DEBUG("collection error");
@@ -257,13 +263,16 @@ I2C bus driver for Adafruit temperature sensor.
 	PRINT_MODULE_USAGE_SUBCATEGORY("temperature_sensor");
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_PARAMS_I2C_SPI_DRIVER(true, false);
-    PRINT_MODULE_USAGE_PARAM_INT('b', AdafruitTemp_BASEADDR, 1, 25, "Sensor rotation - downward facing by default", true);
+    PRINT_MODULE_USAGE_PARAMS_I2C_ADDRESS(0b11000);
+    PRINT_MODULE_USAGE_COMMAND("set_address");
+    PRINT_MODULE_USAGE_PARAMS_I2C_ADDRESS(0b11000);
     PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 }
 
 I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const BusInstanceIterator &iterator,
 				      int runtime_instance)
 {
+    PX4_INFO("instantiate");
 	AdafruitTemp* instance = new AdafruitTemp(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency);
 
 	if (instance == nullptr) {
@@ -282,41 +291,43 @@ I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const Bu
 
 extern "C" __EXPORT int adafruit_temp_main(int argc, char *argv[])
 {
+    PX4_INFO("main");
 	int ch;
 	using ThisDriver = AdafruitTemp;
 	BusCLIArguments cli{true, false};
 	cli.i2c_address = AdafruitTemp_BASEADDR;
 	cli.default_i2c_frequency = 400000;
 
-	while ((ch = cli.getopt(argc, argv, "b:")) != EOF) {
-		switch (ch) {
-		case 'b':
-			cli.i2c_address = atoi(cli.optarg());
-			break;
-		}
-	}
+    using ThisDriver = MB12XX;
+    BusCLIArguments cli{true, false};
+    cli.i2c_address = MB12XX_BASE_ADDR;
+    cli.default_i2c_frequency = MB12XX_BUS_SPEED;
 
-	const char *verb = cli.optarg();
+    const char *verb = cli.parseDefaultArguments(argc, argv);
 
-	if (!verb) {
-		ThisDriver::print_usage();
-		return -1;
-	}
+    if (!verb) {
+        ThisDriver::print_usage();
+        return -1;
+    }
 
-	BusInstanceIterator iterator(MODULE_NAME, cli, DRV_DIST_DEVTYPE_SF1XX);
+    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_DIST_DEVTYPE_SF1XX);
 
 	if (!strcmp(verb, "start")) {
+	    PX4_INFO("start called");
 		return ThisDriver::module_start(cli, iterator);
 	}
 
 	if (!strcmp(verb, "stop")) {
+	    PX4_INFO("stop called");
 		return ThisDriver::module_stop(iterator);
 	}
 
 	if (!strcmp(verb, "status")) {
+	    PX4_INFO("status called");
 		return ThisDriver::module_status(iterator);
 	}
 
+	PX4_INFO("failed main");
 	ThisDriver::print_usage();
 	return -1;
 }
