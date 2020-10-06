@@ -292,16 +292,10 @@ I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const Bu
 extern "C" __EXPORT int adafruit_temp_main(int argc, char *argv[])
 {
     PX4_INFO("main");
-	int ch;
 	using ThisDriver = AdafruitTemp;
 	BusCLIArguments cli{true, false};
 	cli.i2c_address = AdafruitTemp_BASEADDR;
 	cli.default_i2c_frequency = 400000;
-
-    using ThisDriver = MB12XX;
-    BusCLIArguments cli{true, false};
-    cli.i2c_address = MB12XX_BASE_ADDR;
-    cli.default_i2c_frequency = MB12XX_BUS_SPEED;
 
     const char *verb = cli.parseDefaultArguments(argc, argv);
 
