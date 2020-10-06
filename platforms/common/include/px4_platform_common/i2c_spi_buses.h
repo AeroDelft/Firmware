@@ -226,6 +226,7 @@ class I2CSPIDriver : public I2CSPIDriverBase
 public:
 	static int module_start(const BusCLIArguments &cli, BusInstanceIterator &iterator)
 	{
+	    PX4_INFO("I2CSPIDriver::module_start");
 		return I2CSPIDriverBase::module_start(cli, iterator, &T::print_usage, &T::instantiate);
 	}
 

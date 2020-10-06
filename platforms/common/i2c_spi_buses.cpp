@@ -450,16 +450,20 @@ static void initializer_trampoline(void *argument)
 int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterator &iterator,
 				   void(*print_usage)(), instantiate_method instantiate)
 {
+    PX4_INFO("I2CSPIDriverBase::module_start");
 	if (iterator.configuredBusOption() == I2CSPIBusOption::All) {
+	    PX4_INFO("need to specify a bus type");
 		PX4_ERR("need to specify a bus type");
 		print_usage();
 		return -1;
 	}
 
 	bool started = false;
+	PX4_INFO("started: %i", started);
 
 	while (iterator.next()) {
 		if (iterator.instance()) {
+            PX4_INFO("Already running on bus %i", iterator.bus());
 			PX4_WARN("Already running on bus %i", iterator.bus());
 			continue;
 		}
@@ -467,6 +471,8 @@ int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterat
 
 		device::Device::DeviceId device_id{};
 		device_id.devid_s.bus = iterator.bus();
+		PX4_INFO("iterator.busType() is I2C: %i", iterator.busType() == BOARD_I2C_BUS);
+        PX4_INFO("iterator.busType() is invalid: %i", iterator.busType() == BOARD_INVALID_BUS);
 
 		switch (iterator.busType()) {
 		case BOARD_I2C_BUS: device_id.devid_s.bus_type = device::Device::DeviceBusType_I2C; break;
@@ -485,32 +491,41 @@ int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterat
 		I2CSPIDriverBase *instance = initializer_data.instance;
 
 		if (!instance) {
+            PX4_INFO("instantiate failed (no device on bus %i (devid 0x%x)?)", iterator.bus(), iterator.devid());
 			PX4_DEBUG("instantiate failed (no device on bus %i (devid 0x%x)?)", iterator.bus(), iterator.devid());
 			continue;
 		}
 
 		if (cli.i2c_address != 0 && instance->_i2c_address == 0) {
+            PX4_INFO("Bug: driver %s does not pass the I2C address to I2CSPIDriverBase", instance->ItemName());
 			PX4_ERR("Bug: driver %s does not pass the I2C address to I2CSPIDriverBase", instance->ItemName());
 		}
 
 		iterator.addInstance(instance);
+		PX4_INFO("instance added");
 		started = true;
 
 		// print some info that we are running
 		switch (iterator.busType()) {
 		case BOARD_I2C_BUS:
+		    PX4_INFO("It is indeed an I2C bus");
+		    PX4_INFO("%s #%i on I2C bus %d", instance->ItemName(), runtime_instance, iterator.bus());
 			PX4_INFO_RAW("%s #%i on I2C bus %d", instance->ItemName(), runtime_instance, iterator.bus());
 
 			if (iterator.external()) {
+                PX4_INFO(" (external, equal to '-b %i')\n", iterator.externalBusIndex());
 				PX4_INFO_RAW(" (external, equal to '-b %i')\n", iterator.externalBusIndex());
 
 			} else {
+			    PX4_INFO("not external");
 				PX4_INFO_RAW("\n");
 			}
 
 			break;
 
 		case BOARD_SPI_BUS:
+            PX4_INFO("%s #%i on SPI bus %d (devid=0x%x)",
+                         instance->ItemName(), runtime_instance, iterator.bus(), PX4_SPI_DEV_ID(iterator.devid()));
 			PX4_INFO_RAW("%s #%i on SPI bus %d (devid=0x%x)",
 				     instance->ItemName(), runtime_instance, iterator.bus(), PX4_SPI_DEV_ID(iterator.devid()));
 
@@ -524,10 +539,12 @@ int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterat
 			break;
 
 		case BOARD_INVALID_BUS:
+		    PX4_INFO("the bus is invalid");
 			break;
 		}
 	}
 
+	PX4_INFO("started: %i", started);
 	return started ? 0 : -1;
 }
 
