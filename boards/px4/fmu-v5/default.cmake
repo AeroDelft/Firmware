@@ -61,7 +61,6 @@ px4_add_board(
 		uavcan
 		volz
 		adafruit_temp
-		mpl3115a2
 	MODULES
 		airspeed_selector
 		attitude_estimator_q
