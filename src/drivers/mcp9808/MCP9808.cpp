@@ -34,7 +34,8 @@
 /**
  * @file MCP9808.hpp
  *
- * Driver for the MCP9808 temperature sensor connected via I2C.
+ * Driver for the MCP9808 temperature sensor connected via I2C. Inspired by the
+ * MPL3115A2 barometer driver
  */
 
 // #pragma once
@@ -51,11 +52,17 @@
 #include <px4_platform_common/getopt.h>
 #include <px4_platform_common/module.h>
 
-#define MCP9808_BASE_ADDRESS        0x18
+#include <uORB/uORB.h>
+#include <uORB/PublicationMulti.hpp>
+#include <uORB/topics/sensor_temp.h>
+
+#define MCP9808_BASE_ADDRESS       0x18
 
 #define MCP9808_REG_AMB_TEMP       0x05
 #define MCP9808_REG_DEV_ID         0x07
 #define MCP9808_DEV_ID             0x04
+
+#define TEMP_BASE_DEVICE_PATH      "dev/temp"
 
 //#define MCP9808_REG_WHO_AM_I   0x0c
 //#define MCP9808_WHO_AM_I       0xC4
@@ -104,6 +111,10 @@ private:
 //    int RegisterRead(uint8_t reg, void *data, unsigned count = 1);
 //    int RegisterWrite(uint8_t reg, uint8_t data);
 
+    uORB::PublicationMultiData<sensor_temp_s>	_sensor_temp_pub;
+
+    int			_class_device_instance{-1};
+
     bool _collect_phase{false};
 
     perf_counter_t _sample_perf;
@@ -114,15 +125,26 @@ private:
 MCP9808::MCP9808(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address) :
         I2C(DRV_TEMP_DEVTYPE_MCP9808, MODULE_NAME, bus, address, bus_frequency),
         I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus),
+        _sensor_temp_pub{ORB_ID(sensor_temp), ORB_PRIO_DEFAULT},
         // _px4_barometer(get_device_id()),
         _sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": read")),
-_measure_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": measure")),
-_comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": com_err"))
+        _measure_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": measure")),
+        _comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": com_err"))
 {
+    _class_device_instance = register_class_devname(TEMP_BASE_DEVICE_PATH);
+    _sensor_temp_pub.advertise();
+
+    _sensor_temp_pub.get().device_id = get_device_id();
 }
 
 MCP9808::~MCP9808()
 {
+    if (_class_device_instance != -1) {
+        unregister_class_devname(TEMP_BASE_DEVICE_PATH, _class_device_instance);
+    }
+
+    _sensor_temp_pub.unadvertise();
+
     perf_free(_sample_perf);
     perf_free(_measure_perf);
     perf_free(_comms_errors);
@@ -306,7 +328,7 @@ int MCP9808::collect()
      * 2 bytes for temperature
      */
     uint8_t	val[2] {};
-    // const hrt_abstime timestamp_sample = hrt_absolute_time();
+    const hrt_abstime timestamp_sample = hrt_absolute_time();
     int ret = transfer(nullptr, 0, &val[0], 2);
 
     if (ret == -EIO) {
@@ -321,7 +343,6 @@ int MCP9808::collect()
     if (raw & 0x1000) temp -= 256;
 
     PX4_INFO("Temperature measured: %i", (int)temp);
-    // TODO: Actually publish information on uORB
 
 //#pragma pack(push, 1)
 //    struct MCP9808_data_t {
@@ -350,6 +371,13 @@ int MCP9808::collect()
 //    _px4_barometer.update(timestamp_sample, P / 100.0f);
 //
 //    perf_end(_sample_perf);
+
+    sensor_temp_s &report = _sensor_temp_pub.get();
+
+    report.timestamp_sample = timestamp_sample;
+    report.temperature = temp;
+    report.timestamp = hrt_absolute_time();
+    _sensor_temp_pub.update();
 
     return PX4_OK;
 }
