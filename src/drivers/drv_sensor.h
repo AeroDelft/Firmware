@@ -162,6 +162,9 @@
 #define DRV_MAG_DEVTYPE_UAVCAN	0x88
 #define DRV_DIST_DEVTYPE_UAVCAN	0x89
 
+// Custom sensor drivers
+#define DRV_TEMP_DEVTYPE_MCP9808 0x8a
+
 
 #define DRV_DEVTYPE_UNUSED		0xff
 

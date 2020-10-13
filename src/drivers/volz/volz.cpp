@@ -289,6 +289,9 @@ VolzOutput::init()
         }
     } while (0);
 
+    Command command = pos_cmd(0, 0x1F);  // TODO: Remove before deployment
+    ::write(_fd, command.cmd, sizeof(command.cmd));
+
     // close the fd
     ::close(_fd);
     _fd = -1;
@@ -492,6 +495,10 @@ VolzOutput::Run()
     if (_fd < 0) {
         // open fd
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
+
+        // TODO: Remove before deployment
+        Command command = pos_cmd(1, 0x1F);
+        ::write(_fd, command.cmd, sizeof(command.cmd));
     }
 
 	if (should_exit()) {

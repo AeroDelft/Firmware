@@ -55,6 +55,7 @@
 
 /* Configuration Constants */
 #define AdafruitTemp_BASEADDR		0b11000
+#define AdafruitTemp_READ_CMD       0x05
 
 // TODO: Change DRV_DIST_DEVTYPE_SF1XX
 
@@ -83,7 +84,7 @@ public:
 	void RunImpl();
 
 private:
-	int probe() override;
+	int probe() override; // TODO: This is public in MPL3115A2
 
 	/**
 	* Test whether the device supported by the driver is present at a
@@ -92,7 +93,7 @@ private:
 	* @param address The I2C bus address to probe.
 	* @return True if the device is present.
 	*/
-	int probe_address(uint8_t address);
+	int probe_address(uint8_t address); // TODO: This line is not in MPL3115A2
 
 	/**
 	* Initialise the automatic measurement state machine and start it.
@@ -105,30 +106,35 @@ private:
 	int measure();
 	int collect();
 
-	bool _sensor_ok{false};
+	bool _sensor_ok{false}; // TODO: This line is not in MPL3115A2
 
-	int _conversion_interval{-1};
-	int _measure_interval{0};
+	int _conversion_interval{-1}; // TODO: This line is not in MPL3115A2
+	int _measure_interval{0}; // TODO: This line is not in MPL3115A2
 
-    uORB::Publication<adafruit_temp_s> _adafruit_temp_pub{ORB_ID(adafruit_temp)};
+    uORB::Publication<adafruit_temp_s> _adafruit_temp_pub{ORB_ID(adafruit_temp)}; // TODO: This line is not in MPL3115A2
 
+    // TODO: MPL3115A2 doesn't pass arguments to these, and has one for _measure_perf
 	perf_counter_t _sample_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": read")};
 	perf_counter_t _comms_errors{perf_alloc(PC_COUNT, MODULE_NAME": com err")};
+
+	// TODO: MPL3115A2 has PX4Barometer and _collect_phase
 };
 
 AdafruitTemp::AdafruitTemp(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address) :
 	I2C(DRV_DIST_DEVTYPE_SF1XX, MODULE_NAME, bus, address, bus_frequency),
 	I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus)
+	// TODO: MPL3115A2 has the perf counters are _px4_barometers here
 {
 }
 
 AdafruitTemp::~AdafruitTemp()
 {
-    _adafruit_temp_pub.unadvertise();
+    _adafruit_temp_pub.unadvertise(); // TODO: This line is not in MPL3115A2
 
 	/* free perf counters */
 	perf_free(_sample_perf);
 	perf_free(_comms_errors);
+	// TODO: MPL3115A2 frees _measure_perf here as well
 }
 
 int AdafruitTemp::init()
@@ -142,13 +148,15 @@ int AdafruitTemp::init()
 		return ret;
 	}
 
-	// Select altitude register
-	int ret2 = measure(); // TODO: What does this do?
+	// Select altitude register TODO: These lines are not in MPL3115A2
+	int ret2 = measure();
 
 	if (ret2 == 0) {
 		ret = OK;
 		_sensor_ok = true;
 	}
+
+    // TODO: MPL3115A2 calls start from here
 
 	return ret;
 }
@@ -165,8 +173,11 @@ int AdafruitTemp::measure()
 	/*
 	 * Send the command '0' -- read altitude
 	 */
-	uint8_t cmd = 0;
-	int ret = transfer(&cmd, 1, nullptr, 0);
+	uint8_t cmd = AdafruitTemp_READ_CMD;
+    uint8_t val[2] = {0, 0};
+	int ret = transfer(&cmd, 1, &val, 2);
+    PX4_INFO("first byte received %d", val[0]);
+    PX4_INFO("second byte %d", val[1]);
 
 	if (OK != ret) {
 		perf_count(_comms_errors);
@@ -273,7 +284,7 @@ I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const Bu
 				      int runtime_instance)
 {
     PX4_INFO("instantiate");
-	AdafruitTemp* instance = new AdafruitTemp(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency);
+	AdafruitTemp* instance = new AdafruitTemp(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency, cli.i2c_address);
 
 	if (instance == nullptr) {
 		PX4_ERR("alloc failed");
@@ -285,7 +296,7 @@ I2CSPIDriverBase *AdafruitTemp::instantiate(const BusCLIArguments &cli, const Bu
 		return nullptr;
 	}
 
-	instance->start();
+	instance->start();  // TODO: This line not in MPL3115A2
 	return instance;
 }
 
@@ -294,7 +305,7 @@ extern "C" __EXPORT int adafruit_temp_main(int argc, char *argv[])
     PX4_INFO("main");
 	using ThisDriver = AdafruitTemp;
 	BusCLIArguments cli{true, false};
-	cli.i2c_address = AdafruitTemp_BASEADDR;
+	cli.i2c_address = AdafruitTemp_BASEADDR;  // TODO: This line not in MPL3115A2
 	cli.default_i2c_frequency = 400000;
 
     const char *verb = cli.parseDefaultArguments(argc, argv);
