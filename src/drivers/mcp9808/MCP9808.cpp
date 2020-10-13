@@ -37,7 +37,7 @@
  * Driver for the MCP9808 temperature sensor connected via I2C.
  */
 
-#pragma once
+// #pragma once
 
 #include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
@@ -145,10 +145,11 @@ int MCP9808::init()
 int MCP9808::probe()
 {
     _retries = 10;
-    uint8_t val[2] = {0, 0};
+    uint8_t val[2] {};
 
     // Read the device ID of the connected sensor, and make sure it matches with the MCP9808
-    int ret = transfer(MCP9808_REG_DEV_ID, 1, &val[0], 2);
+    uint8_t reg = MCP9808_REG_DEV_ID;
+    int ret = transfer(&reg, 1, &val[0], 2);
 
     if ((ret > 0) && (val[1] == MCP9808_DEV_ID)) {
         /*
@@ -271,7 +272,8 @@ int MCP9808::measure()
     // Select the temperature register so subsequent read commands do not
     // have to specify it
     uint8_t val[2] = {0, 0};
-    int ret = transfer(MCP9808_REG_AMB_TEMP, 1, &val[0], 2);
+    uint8_t reg = MCP9808_REG_AMB_TEMP;
+    int ret = transfer(&reg, 1, &val[0], 2);
 
     if (ret == -EIO) {
         perf_count(_comms_errors);
@@ -304,8 +306,8 @@ int MCP9808::collect()
      * 2 bytes for temperature
      */
     uint8_t	val[2] {};
-    const hrt_abstime timestamp_sample = hrt_absolute_time();
-    ret = transfer(nullptr, 0, &val[0], 2);
+    // const hrt_abstime timestamp_sample = hrt_absolute_time();
+    int ret = transfer(nullptr, 0, &val[0], 2);
 
     if (ret == -EIO) {
         perf_count(_comms_errors);
@@ -318,7 +320,7 @@ int MCP9808::collect()
     temp = (float) (temp / (float) 16.0);
     if (raw & 0x1000) temp -= 256;
 
-    PX4_INFO("Temperature measured: %d", temp);
+    PX4_INFO("Temperature measured: %i", (int)temp);
     // TODO: Actually publish information on uORB
 
 //#pragma pack(push, 1)
