@@ -204,6 +204,7 @@ VolzOutput::~VolzOutput()
 int
 VolzOutput::init()
 {
+    PX4_INFO("volz init called");
 	/* do regular cdev init */
 	int ret = CDev::init();
 
@@ -228,7 +229,7 @@ VolzOutput::init()
 	// TODO: Find out how this code works (taken from TFMINI.cpp)
 
     do { // create a scope to handle exit conditions using break
-
+        PX4_INFO("configuring serial port");
         // open fd
         _fd = ::open(_port, O_RDWR | O_NOCTTY);
 
@@ -289,6 +290,7 @@ VolzOutput::init()
         }
     } while (0);
 
+    PX4_INFO("sending mock command");
     Command command = pos_cmd(-1, 0x1F);  // TODO: Remove before deployment
     ::write(_fd, command.cmd, sizeof(command.cmd));
 
@@ -304,6 +306,7 @@ VolzOutput::init()
 int
 VolzOutput::task_spawn(int argc, char *argv[])
 {
+    PX4_INFO("task spawn called");
 	VolzOutput *instance = new VolzOutput();
 
 	if (instance) {
@@ -311,6 +314,7 @@ VolzOutput::task_spawn(int argc, char *argv[])
 		_task_id = task_id_is_work_queue;
 
 		if (instance->init() == PX4_OK) {
+            PX4_INFO("task spawn and init successful");
 			return PX4_OK;
 		}
 
