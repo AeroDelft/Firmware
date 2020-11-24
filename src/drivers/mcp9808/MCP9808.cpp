@@ -404,16 +404,21 @@ I2CSPIDriverBase *MCP9808::instantiate(const BusCLIArguments &cli, const BusInst
                                          int runtime_instance)
 {
     MCP9808 *dev = new MCP9808(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency, cli.i2c_address);
+    PX4_INFO("instantiate called on MCP9808");
 
     if (dev == nullptr) {
+        PX4_INFO("dev is null");
         PX4_ERR("alloc failed");
         return nullptr;
     }
 
     if (OK != dev->init()) {
+        PX4_INFO("problems with init");
         delete dev;
         return nullptr;
     }
+
+    PX4_INFO("everything is fine with instantiate");
 
     return dev;
 }

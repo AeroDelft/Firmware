@@ -443,6 +443,7 @@ struct I2CSPIDriverInitializing {
 
 static void initializer_trampoline(void *argument)
 {
+    PX4_INFO("initialiser trampoline called");
 	I2CSPIDriverInitializing *data = (I2CSPIDriverInitializing *)argument;
 	data->instance = data->instantiate(data->cli, data->iterator, data->runtime_instance);
 }
@@ -485,6 +486,7 @@ int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterat
 		const int runtime_instance = iterator.runningInstancesCount();
 		I2CSPIDriverInitializing initializer_data{cli, iterator, instantiate, runtime_instance};
 		// initialize the object and bus on the work queue thread - this will also probe for the device
+		PX4_INFO("devid thingie: %i", device_id.devid);
 		px4::WorkItemSingleShot initializer(px4::device_bus_to_wq(device_id.devid), initializer_trampoline, &initializer_data);
 		initializer.ScheduleNow();
 		initializer.wait();

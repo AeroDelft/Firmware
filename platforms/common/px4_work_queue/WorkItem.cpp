@@ -45,7 +45,9 @@ namespace px4
 WorkItem::WorkItem(const char *name, const wq_config_t &config) :
 	_item_name(name)
 {
+    PX4_INFO("expected WorkItem constructor called");
 	if (!Init(config)) {
+        PX4_INFO("WorkItem init failed");
 		PX4_ERR("init failed");
 	}
 }
@@ -67,25 +69,32 @@ WorkItem::~WorkItem()
 
 bool WorkItem::Init(const wq_config_t &config)
 {
+    PX4_INFO("WorkItem Init called");
 	// clear any existing first
 	Deinit();
 
 	px4::WorkQueue *wq = WorkQueueFindOrCreate(config);
 
+	PX4_INFO("found or created work queue with following name: %s", wq->get_name());
+
 	if ((wq != nullptr) && wq->Attach(this)) {
 		_wq = wq;
 		_time_first_run = 0;
+		PX4_INFO("able to attach item to work queue %s", wq->get_name());
 		return true;
 	}
 
+    PX4_INFO("%s not available", config.name);
 	PX4_ERR("%s not available", config.name);
 	return false;
 }
 
 void WorkItem::Deinit()
 {
+    PX4_INFO("WorkItem Deinit called");
 	// remove any currently queued work
 	if (_wq != nullptr) {
+	    PX4_INFO("Deinit -> work queue is not null");
 		// prevent additional insertions
 		px4::WorkQueue *wq_temp = _wq;
 		_wq = nullptr;
@@ -95,6 +104,7 @@ void WorkItem::Deinit()
 
 		wq_temp->Detach(this);
 	}
+    PX4_INFO("Deinit -> work queue is null");
 }
 
 void WorkItem::ScheduleClear()

@@ -65,7 +65,9 @@ public:
 
 	inline void ScheduleNow()
 	{
+	    PX4_INFO("ScheduleNow called");
 		if (_wq != nullptr) {
+            PX4_INFO("We are on work queue %s. Calling add...", _wq->get_name());
 			_wq->Add(this);
 		}
 	}

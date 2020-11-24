@@ -124,10 +124,15 @@ device_bus_to_wq(uint32_t device_id_int)
 	union device::Device::DeviceId device_id;
 	device_id.devid = device_id_int;
 
+	PX4_INFO("device_bus_to_wq called with %i", device_id.devid);
+
 	const device::Device::DeviceBusType bus_type = device_id.devid_s.bus_type;
 	const uint8_t bus = device_id.devid_s.bus;
 
+	PX4_INFO("the bus is %i", bus);
+
 	if (bus_type == device::Device::DeviceBusType_I2C) {
+	    PX4_INFO("recognised i2c bus type");
 		switch (bus) {
 		case 0: return wq_configurations::I2C0;
 
@@ -141,6 +146,7 @@ device_bus_to_wq(uint32_t device_id_int)
 		}
 
 	} else if (bus_type == device::Device::DeviceBusType_SPI) {
+        PX4_INFO("recognised spi bus type");
 		switch (bus) {
 		case 0: return wq_configurations::SPI0;
 
@@ -157,6 +163,8 @@ device_bus_to_wq(uint32_t device_id_int)
 		case 6: return wq_configurations::SPI6;
 		}
 	}
+
+	PX4_INFO("returned default high priority configuration");
 
 	// otherwise use high priority
 	return wq_configurations::hp_default;

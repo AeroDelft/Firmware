@@ -289,7 +289,7 @@ VolzOutput::init()
         }
     } while (0);
 
-    Command command = pos_cmd(0, 0x1F);  // TODO: Remove before deployment
+    Command command = pos_cmd(-1, 0x1F);  // TODO: Remove before deployment
     ::write(_fd, command.cmd, sizeof(command.cmd));
 
     // close the fd

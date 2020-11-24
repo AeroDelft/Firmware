@@ -74,13 +74,16 @@ WorkQueue::~WorkQueue()
 
 bool WorkQueue::Attach(WorkItem *item)
 {
+    PX4_INFO("WorkQueue attach called");
 	work_lock();
 
 	if (!should_exit()) {
+	    PX4_INFO("not should exit in workqueue attach");
 		_work_items.add(item);
 		work_unlock();
 		return true;
 	}
+    PX4_INFO("should exit in workqueue attach");
 
 	work_unlock();
 	return false;
@@ -105,9 +108,12 @@ void WorkQueue::Detach(WorkItem *item)
 
 void WorkQueue::Add(WorkItem *item)
 {
+    PX4_INFO("WorkQueue add called. Initial size of the queue is %i", _q.size());
 	work_lock();
 	_q.push(item);
 	work_unlock();
+
+    PX4_INFO("New size of the queue is %i", _q.size());
 
 	SignalWorkerThread();
 }
