@@ -74,6 +74,9 @@ using namespace time_literals; // TODO: what does this do?
 class VolzOutput : public cdev::CDev, public ModuleBase<VolzOutput>, public OutputModuleInterface
 {
 public:
+    static constexpr int VOLZ_ID_UNKNOWN = 0x1F;
+    static constexpr int VOLZ_CMD_LEN = 6;
+
 	VolzOutput();
 	virtual ~VolzOutput();
 
@@ -107,12 +110,38 @@ public:
         SET_CURRENT_POS_AS_ZERO = 0x99
 	} volz_command_t;
 
-    struct Command {
-        uint8_t cmd[6];
-        int num_repetitions{0};
+    typedef enum{
+        POS_CMD_RESP = 0x44,
+        SET_ACTUATOR_ID_RESP = 0x55,
+        SET_FAILSAFE_TIMEOUT_RESP = 0x66,
+        SET_CURRENT_POS_AS_FAILSAFE_POS_RESP = 0x5C,
+        SET_CURRENT_POS_AS_ZERO_RESP = 0x65
+    } volz_response_t;
 
+    struct Command {
+        // TODO: make a method to set the first four bytes that automatically generates the checksum
+
+        hrt_abstime last_send_time{0};
+
+        uint8_t cmd[VOLZ_CMD_LEN];  // command bytes
+        uint8_t exp_resp[VOLZ_CMD_LEN];  // expected response bytes
+        bool resp_unknown[VOLZ_CMD_LEN] = {false, false, false, false, false, false};  // true if we don't know what to expect
+
+        // TODO: maybe remove repetition feature
+        int num_repetitions{0};
         bool valid() const { return num_repetitions > 0; }
         void clear() { num_repetitions = 0; }
+
+        // check if a given set of response bytes is valid for this command
+        // TODO: make this check whether the checksum of the received command makes sense
+        bool valid_response(uint8_t resp[]) {
+            for (int i = 0; i < VOLZ_CMD_LEN; i ++) {
+                if (!resp_unknown[i] && (resp[i] != exp_resp[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
     };
 
 	/**
@@ -134,7 +163,8 @@ private:
 
     static constexpr int VOLZ_POS_MIN = 0x0060;
     static constexpr int VOLZ_POS_CENTER = 0x1000;
-    static constexpr int VOLZ_ID_UNKNOWN = 0x1F;
+
+    static constexpr int RESP_QUEUE_LEN = MAX_ACTUATORS + 1;
 
 	int _fd{-1};
 	const char *_port = "/dev/ttyS2";
@@ -143,8 +173,14 @@ private:
 
 	uORB::Subscription _param_sub{ORB_ID(parameter_update)};
 
-	Command _current_command;
-	px4::atomic<Command *> _new_command{nullptr};
+    Command _current_command;
+    px4::atomic<Command *> _new_command{nullptr};
+
+	Command sent_commands[RESP_QUEUE_LEN];
+	bool waiting_for_resp[RESP_QUEUE_LEN] = {false};
+
+    uint8_t _resp_buffer[VOLZ_CMD_LEN];  // TODO: Should this really be kept between loops or emptied every time?
+    int _resp_position{0};
 
 	unsigned	_num_outputs{0};
 	int		_class_instance{-1}; // TODO: what does this do?
@@ -165,6 +201,10 @@ private:
     static Command set_failsafe_timeout(float timeout, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
     static Command set_current_pos_as_failsafe(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
     static Command set_current_pos_as_zero(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+
+    bool write_command(Command command);
+
+    bool update_telemetry();
 
 	VolzOutput(const VolzOutput &) = delete;
 	VolzOutput operator=(const VolzOutput &) = delete;
@@ -226,7 +266,7 @@ VolzOutput::init()
 	// Getting initial parameter values
 	update_params();
 
-	// TODO: Find out how this code works (taken from TFMINI.cpp)
+	// TODO: Find out how this code works (taken from TFMINI.cpp). Check out dshot's telemetry.cpp
 
     do { // create a scope to handle exit conditions using break
         PX4_INFO("configuring serial port");
@@ -291,8 +331,8 @@ VolzOutput::init()
     } while (0);
 
     PX4_INFO("sending mock command");
-    Command command = pos_cmd(-1, 0x1F);  // TODO: Remove before deployment
-    ::write(_fd, command.cmd, sizeof(command.cmd));
+    Command command = pos_cmd(-1, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
+    write_command(command);
 
     // close the fd
     ::close(_fd);
@@ -357,13 +397,13 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
 	if (stop_motors) {
 		// when motors are stopped we check if we have other commands to send
 		for (int i = 0; i < (int)num_outputs; i++) {
-            Command command = pos_cmd(0, i + 1);
-            ::write(_fd, command.cmd, sizeof(command.cmd));
+            Command command = pos_cmd(0, i + 1);  // Set actuators to idle positions
+            write_command(command);
 		}
 
         // when motors are stopped we check if we have other commands to send
         if (_current_command.valid()) {
-            ::write(_fd, _current_command.cmd, sizeof(_current_command.cmd));
+            write_command(_current_command);
             --_current_command.num_repetitions;
         }
 
@@ -371,11 +411,11 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
 		for (int i = 0; i < (int)num_outputs; i++) {
 			if (outputs[i] == DISARMED_VALUE) {
 			    Command command = pos_cmd(0, i + 1);
-				::write(_fd, command.cmd, sizeof(command.cmd));
+				write_command(command);
 
 			} else {
-                Command command = pos_cmd(0, i + 1);
-                ::write(_fd, command.cmd, sizeof(command.cmd));
+                Command command = pos_cmd(outputs[i], i + 1);
+                write_command(command);
 			}
 		}
 
@@ -419,77 +459,218 @@ VolzOutput::Command VolzOutput::pos_cmd(float pos, int id, int num_repetitions) 
     int arg = VOLZ_POS_CENTER + (int)(pos * (VOLZ_POS_CENTER - VOLZ_POS_MIN));
     uint8_t arg_1 = highbyte(arg);
     uint8_t arg_2 = lowbyte(arg);
-    int crc = generate_crc(volz_command_t::POS_CMD, id, arg_1, arg_2);
-    uint8_t crc_1 = highbyte(crc);
-    uint8_t crc_2 = lowbyte(crc);
+    int crc_cmd = generate_crc(volz_command_t::POS_CMD, id, arg_1, arg_2);
+    int crc_resp = generate_crc(volz_response_t::POS_CMD_RESP, id, arg_1, arg_2);
 
     Command command;
     command.cmd[0] = volz_command_t::POS_CMD;
     command.cmd[1] = id;
     command.cmd[2] = arg_1;
     command.cmd[3] = arg_2;
-    command.cmd[4] = crc_1;
-    command.cmd[5] = crc_2;
+    command.cmd[4] = highbyte(crc_cmd);
+    command.cmd[5] = lowbyte(crc_cmd);
+
+    command.exp_resp[0] = volz_response_t::POS_CMD_RESP;
+    command.exp_resp[1] = id;
+    command.exp_resp[2] = arg_1;
+    command.exp_resp[3] = arg_2;
+    command.exp_resp[4] = highbyte(crc_resp);
+    command.exp_resp[5] = lowbyte(crc_resp);
+
+    if (id == VOLZ_ID_UNKNOWN) {
+        command.resp_unknown[1] = true;
+        command.resp_unknown[4] = true;
+        command.resp_unknown[5] = true;
+    }
+
     command.num_repetitions = num_repetitions;
 
     return command;
 }
 VolzOutput::Command VolzOutput::set_actuator_id(int new_id, int id, int num_repetitions) {
-    int crc = generate_crc(volz_command_t::SET_ACTUATOR_ID, id, new_id, new_id);
+    int crc_cmd = generate_crc(volz_command_t::SET_ACTUATOR_ID, id, new_id, new_id);
+    int crc_resp = generate_crc(volz_response_t::SET_ACTUATOR_ID_RESP, new_id, new_id, new_id);
 
     Command command;
     command.cmd[0] = volz_command_t::SET_ACTUATOR_ID;
     command.cmd[1] = id;
     command.cmd[2] = new_id;
     command.cmd[3] = new_id;
-    command.cmd[4] = highbyte(crc);
-    command.cmd[5] = lowbyte(crc);
+    command.cmd[4] = highbyte(crc_cmd);
+    command.cmd[5] = lowbyte(crc_cmd);
+
+    command.exp_resp[0] = volz_response_t::SET_ACTUATOR_ID_RESP;
+    command.exp_resp[1] = new_id;
+    command.exp_resp[2] = new_id;
+    command.exp_resp[3] = new_id;
+    command.exp_resp[4] = highbyte(crc_resp);
+    command.exp_resp[5] = lowbyte(crc_resp);
+
     command.num_repetitions = num_repetitions;
 
     return command;
 }
 VolzOutput::Command VolzOutput::set_failsafe_timeout(float timeout, int id, int num_repetitions) {
     int arg = (int)(timeout * 10); // convert from seconds to x100 ms
-    int crc = generate_crc(volz_command_t::SET_FAILSAFE_TIMEOUT, id, arg, arg);
+    int crc_cmd = generate_crc(volz_command_t::SET_FAILSAFE_TIMEOUT, id, arg, arg);
+    int crc_resp = generate_crc(volz_response_t::SET_FAILSAFE_TIMEOUT_RESP, id, arg, arg);
 
     Command command;
     command.cmd[0] = volz_command_t::SET_FAILSAFE_TIMEOUT;
     command.cmd[1] = id;
     command.cmd[2] = arg;
     command.cmd[3] = arg;
-    command.cmd[4] = highbyte(crc);
-    command.cmd[5] = lowbyte(crc);
+    command.cmd[4] = highbyte(crc_cmd);
+    command.cmd[5] = lowbyte(crc_cmd);
+
+    command.exp_resp[0] = volz_response_t::SET_FAILSAFE_TIMEOUT_RESP;
+    command.exp_resp[1] = id;
+    command.exp_resp[2] = arg;
+    command.exp_resp[3] = arg;
+    command.exp_resp[4] = highbyte(crc_resp);
+    command.exp_resp[5] = lowbyte(crc_resp);
+
+    if (id == VOLZ_ID_UNKNOWN) {
+        command.resp_unknown[1] = true;
+        command.resp_unknown[4] = true;
+        command.resp_unknown[5] = true;
+    }
+
     command.num_repetitions = num_repetitions;
 
     return command;
 }
 VolzOutput::Command VolzOutput::set_current_pos_as_failsafe(int id, int num_repetitions) {
-    int crc = generate_crc(volz_command_t::SET_CURRENT_POS_AS_FAILSAFE_POS, id, 0x00, 0x00);
+    int crc_cmd = generate_crc(volz_command_t::SET_CURRENT_POS_AS_FAILSAFE_POS, id, 0x00, 0x00);
+    int crc_resp = generate_crc(volz_response_t::SET_CURRENT_POS_AS_FAILSAFE_POS_RESP, id, 0x00, 0x00);
 
     Command command;
     command.cmd[0] = volz_command_t::SET_FAILSAFE_TIMEOUT;
     command.cmd[1] = id;
     command.cmd[2] = 0x00;
     command.cmd[3] = 0x00;
-    command.cmd[4] = highbyte(crc);
-    command.cmd[5] = lowbyte(crc);
+    command.cmd[4] = highbyte(crc_cmd);
+    command.cmd[5] = lowbyte(crc_cmd);
+
+    command.exp_resp[0] = volz_response_t::SET_FAILSAFE_TIMEOUT_RESP;
+    command.exp_resp[1] = id;
+    command.exp_resp[2] = 0x00;
+    command.exp_resp[3] = 0x00;
+    command.exp_resp[4] = highbyte(crc_resp);
+    command.exp_resp[5] = lowbyte(crc_resp);
+
+    command.resp_unknown[1] = id == VOLZ_ID_UNKNOWN;
+    command.resp_unknown[2] = true;
+    command.resp_unknown[3] = true;
+    command.resp_unknown[4] = true;
+    command.resp_unknown[5] = true;
+
     command.num_repetitions = num_repetitions;
 
     return command;
 }
 VolzOutput::Command VolzOutput::set_current_pos_as_zero(int id, int num_repetitions) {
-    int crc = generate_crc(volz_command_t::SET_CURRENT_POS_AS_ZERO, id, 0x00, 0x00);
+    int crc_cmd = generate_crc(volz_command_t::SET_CURRENT_POS_AS_ZERO, id, 0x00, 0x00);
+    int crc_resp = generate_crc(volz_response_t::SET_CURRENT_POS_AS_ZERO_RESP, id, 0x00, 0x00);
 
     Command command;
     command.cmd[0] = volz_command_t::SET_CURRENT_POS_AS_ZERO;
     command.cmd[1] = id;
     command.cmd[2] = 0x00;
     command.cmd[3] = 0x00;
-    command.cmd[4] = highbyte(crc);
-    command.cmd[5] = lowbyte(crc);
+    command.cmd[4] = highbyte(crc_cmd);
+    command.cmd[5] = lowbyte(crc_cmd);
+
+    command.exp_resp[0] = volz_response_t::SET_CURRENT_POS_AS_ZERO_RESP;
+    command.exp_resp[1] = id;
+    command.exp_resp[2] = highbyte(VOLZ_POS_CENTER);
+    command.exp_resp[3] = lowbyte(VOLZ_POS_CENTER);
+    command.exp_resp[4] = highbyte(crc_resp);
+    command.exp_resp[5] = lowbyte(crc_resp);
+
+    if (id == VOLZ_ID_UNKNOWN) {
+        command.resp_unknown[1] = true;
+        command.resp_unknown[4] = true;
+        command.resp_unknown[5] = true;
+    }
+
     command.num_repetitions = num_repetitions;
 
     return command;
+}
+
+// TODO: do something with the return value of this function
+bool VolzOutput::write_command(Command command) {
+    if (_fd < 0) {
+        return false;
+    }
+
+    command.last_send_time = hrt_absolute_time();
+    int ret = ::write(_fd, command.cmd, sizeof(command.cmd));
+
+    if (ret < 0) {
+        return false;
+    }
+
+    int idx = command.cmd[1];
+
+    if (idx == VOLZ_ID_UNKNOWN) {
+        idx = RESP_QUEUE_LEN - 1;
+    }
+
+    if (waiting_for_resp[idx]) {
+        PX4_INFO("Received no response to command on servo %d", idx);
+        PX4_ERR("Received no response to command on servo %d", idx);
+    }
+
+    sent_commands[idx] = command;
+    waiting_for_resp[idx] = true;
+
+    return true;
+}
+
+// inspired by dshot's telemetry.cpp
+bool VolzOutput::update_telemetry() {
+    if (_fd < 0) {
+        return false;
+    }
+
+    // TODO: the ioctl call here causes conflicts with the ioctl defined in this file. Fix this
+    // read from the uart. This must be non-blocking, so check first if there is data available
+//    int bytes_available = 0;
+//    int ret = ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
+//
+//    if (ret != 0 || bytes_available <= 0) {
+//        // no data available. TODO: Check for a timeout
+//        return false;
+//    }
+
+    const int buf_length = VOLZ_CMD_LEN;
+    uint8_t buf[buf_length];
+    bool response_matched = false;
+
+    int num_read = ::read(_fd, buf, buf_length);
+
+    for (int i = 0; i < num_read; i++) {
+        _resp_buffer[_resp_position++] = buf[i];
+
+        if (_resp_position == VOLZ_CMD_LEN) {
+            for (int j = 0; j < RESP_QUEUE_LEN; j++) {
+                // TODO: this will almost certainly throw an error due to not being initialised
+                if (waiting_for_resp[j] && sent_commands[j].valid_response(_resp_buffer)) {
+                    waiting_for_resp[j] = false;
+                    _resp_position = 0;
+                    response_matched = true;
+                }
+            }
+            if (!response_matched) {
+                // TODO: do something
+                PX4_INFO("Received unexpected response");
+                PX4_ERR("Received unexpected response");
+            }
+        }
+    }
+    return true;
 }
 
 void
@@ -501,8 +682,8 @@ VolzOutput::Run()
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
 
         // TODO: Remove before deployment
-        Command command = pos_cmd(1, 0x1F);
-        ::write(_fd, command.cmd, sizeof(command.cmd));
+        // Command command = pos_cmd(1, 0x1F);
+        // ::write(_fd, command.cmd, sizeof(command.cmd));
     }
 
 	if (should_exit()) {
@@ -518,6 +699,10 @@ VolzOutput::Run()
 	perf_begin(_cycle_perf);
 
 	_mixing_output.update();
+
+	update_telemetry();
+
+	// TODO: Check for old commands that have not been responded to yet
 
 	// TODO: Should this be used somehow?
 	/* update output status if armed or if mixer is loaded */
@@ -675,26 +860,26 @@ int VolzOutput::custom_command(int argc, char *argv[])
             PX4_ERR("enter a position between -1 and 1");
             return -1;
         } else {
-            return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 5));
+            return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_id")) {
         if (new_id != VOLZ_ID_UNKNOWN) {
             PX4_ERR("set an ID between 0x01 and 0x1E");
             return -1;
         } else {
-            return get_instance()->sendCommandThreadSafe(set_actuator_id(new_id, actuator_id, 5));
+            return get_instance()->sendCommandThreadSafe(set_actuator_id(new_id, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_fs_timeout")) {
         if (timeout < 0) {
             PX4_ERR("set a timeout between 0 and 12.7 seconds");
             return -1;
         } else {
-            return get_instance()->sendCommandThreadSafe(set_failsafe_timeout(timeout, actuator_id, 5));
+            return get_instance()->sendCommandThreadSafe(set_failsafe_timeout(timeout, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_pos_as_fs")) {
-        return get_instance()->sendCommandThreadSafe(set_current_pos_as_failsafe(actuator_id, 5));
+        return get_instance()->sendCommandThreadSafe(set_current_pos_as_failsafe(actuator_id, 1));
     } else if (!strcmp(verb, "set_pos_as_zero")) {
-        return get_instance()->sendCommandThreadSafe(set_current_pos_as_zero(actuator_id, 5));
+        return get_instance()->sendCommandThreadSafe(set_current_pos_as_zero(actuator_id, 1));
     }
 
     if (!is_running()) { // TODO: What does this do?
