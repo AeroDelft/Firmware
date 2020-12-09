@@ -60,7 +60,6 @@ px4_add_board(
 		tone_alarm
 		uavcan
 		volz
-		#adafruit_temp
 		mcp9808
 	MODULES
 		airspeed_selector

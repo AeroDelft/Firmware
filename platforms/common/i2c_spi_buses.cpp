@@ -487,10 +487,15 @@ int I2CSPIDriverBase::module_start(const BusCLIArguments &cli, BusInstanceIterat
 		I2CSPIDriverInitializing initializer_data{cli, iterator, instantiate, runtime_instance};
 		// initialize the object and bus on the work queue thread - this will also probe for the device
 		PX4_INFO("devid thingie: %i", device_id.devid);
+        PX4_INFO("address: %i", device_id.devid_s.address);
 		px4::WorkItemSingleShot initializer(px4::device_bus_to_wq(device_id.devid), initializer_trampoline, &initializer_data);
+		PX4_INFO("initialiser created");
 		initializer.ScheduleNow();
+		PX4_INFO("schedulenow called");
 		initializer.wait();
+		PX4_INFO("wait called");
 		I2CSPIDriverBase *instance = initializer_data.instance;
+        PX4_INFO("address again: %i", device_id.devid_s.address);
 
 		if (!instance) {
             PX4_INFO("instantiate failed (no device on bus %i (devid 0x%x)?)", iterator.bus(), iterator.devid());

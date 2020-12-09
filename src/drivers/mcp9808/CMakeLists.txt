@@ -38,5 +38,6 @@ px4_add_module(
 	SRCS
         MCP9808.cpp
 	DEPENDS
+		px4_work_queue
 	)
 

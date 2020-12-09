@@ -136,7 +136,7 @@ public:
 		}
 
 		if (strcmp(argv[1], "start") == 0) {
-		    PX4_INFO("start command recognised");
+		    // PX4_INFO("start command recognised");
 			// Pass the 'start' argument too, because later on px4_getopt() will ignore the first argument.
 			return start_command_base(argc - 1, argv + 1);
 		}

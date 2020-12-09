@@ -35,10 +35,10 @@
  * @file MCP9808.hpp
  *
  * Driver for the MCP9808 temperature sensor connected via I2C. Inspired by the
- * MPL3115A2 barometer driver
+ * MPL3115A2 barometer driver.
+ * Note: the driver can currently be started more than once on the same I2C
+ * address. This will simply create duplicate publications
  */
-
-// #pragma once
 
 #include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
@@ -62,26 +62,10 @@
 #define MCP9808_REG_DEV_ID         0x07
 #define MCP9808_DEV_ID             0x04
 
-#define TEMP_BASE_DEVICE_PATH      "dev/temp"
-
-//#define MCP9808_REG_WHO_AM_I   0x0c
-//#define MCP9808_WHO_AM_I       0xC4
-//
-//#define OUT_P_MSB                0x01
-//
-//#define MCP9808_CTRL_REG1      0x26
-//#  define CTRL_REG1_ALT          (1 << 7)
-//#  define CTRL_REG1_RAW          (1 << 6)
-//#  define CTRL_REG1_OS_SHIFTS    (3)
-//#  define CTRL_REG1_OS_MASK      (0x7 << CTRL_REG1_OS_SHIFTS)
-//#  define CTRL_REG1_OS(n)        (((n)& 0x7) << CTRL_REG1_OS_SHIFTS)
-//#  define CTRL_REG1_RST          (1 << 2)
-//#  define CTRL_REG1_OST          (1 << 1)
-//#  define CTRL_REG1_SBYB         (1 << 0)
+#define TEMP_BASE_DEVICE_PATH      "/dev/temp"
 
 #define MCP9808_CONVERSION_INTERVAL	10000	/* microseconds */
-//#define MCP9808_OSR                   2       /* Over Sample rate of 4 18MS Minimum time between data samples */
-//#define MCP9808_CTRL_TRIGGER          (CTRL_REG1_OST | CTRL_REG1_OS(MCP9808_OSR))
+
 
 class MCP9808 : public device::I2C, public I2CSPIDriver<MCP9808>
 {
@@ -103,13 +87,9 @@ public:
 private:
 
     void start();
-    int  reset();
 
     int measure();
     int collect();
-
-//    int RegisterRead(uint8_t reg, void *data, unsigned count = 1);
-//    int RegisterWrite(uint8_t reg, uint8_t data);
 
     uORB::PublicationMultiData<sensor_temp_s>	_sensor_temp_pub;
 
@@ -126,7 +106,6 @@ MCP9808::MCP9808(I2CSPIBusOption bus_option, const int bus, int bus_frequency, i
         I2C(DRV_TEMP_DEVTYPE_MCP9808, MODULE_NAME, bus, address, bus_frequency),
         I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus),
         _sensor_temp_pub{ORB_ID(sensor_temp), ORB_PRIO_DEFAULT},
-        // _px4_barometer(get_device_id()),
         _sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": read")),
         _measure_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": measure")),
         _comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": com_err"))
@@ -173,7 +152,7 @@ int MCP9808::probe()
     uint8_t reg = MCP9808_REG_DEV_ID;
     int ret = transfer(&reg, 1, &val[0], 2);
 
-    if ((ret > 0) && (val[1] == MCP9808_DEV_ID)) {
+    if ((ret == PX4_OK) && (val[0] == MCP9808_DEV_ID)) {
         /*
          * Disable retries; we may enable them selectively in some cases,
          * but the device gets confused if we retry some of the commands.
@@ -185,20 +164,6 @@ int MCP9808::probe()
     return -EIO;
 }
 
-//int MCP9808::RegisterRead(uint8_t reg, void *data, unsigned count)
-//{
-//    uint8_t cmd = reg;
-//    int ret = transfer(&cmd, 1, (uint8_t *)data, count);
-//    return ret == PX4_OK ? count : ret;
-//}
-//
-//int MCP9808::RegisterWrite(uint8_t reg, uint8_t data)
-//{
-//    uint8_t buf[2] = { reg, data};
-//    int ret = transfer(buf, sizeof(buf), NULL, 0);
-//    return ret == PX4_OK ? 2 : ret;
-//}
-
 void MCP9808::start()
 {
     /* reset the report ring and state machine */
@@ -206,22 +171,6 @@ void MCP9808::start()
 
     /* schedule a cycle to start things */
     ScheduleNow();
-}
-
-int MCP9808::reset()  // This doesn't seem to be available for the MCP9808
-{
-//    int max = 10;
-//    RegisterWrite(MCP9808_CTRL_REG1, CTRL_REG1_RST);
-//    int rv = CTRL_REG1_RST;
-//    int ret = 1;
-//
-//    while (ret == 1 && (rv & CTRL_REG1_RST) && max--) {
-//        usleep(400);
-//        ret = RegisterRead(MCP9808_CTRL_REG1, &rv);
-//    }
-//
-//    return ret == 1 ? PX4_OK : ret;
-    return PX4_OK;
 }
 
 void MCP9808::RunImpl()
@@ -235,15 +184,6 @@ void MCP9808::RunImpl()
         ret = collect();
 
         if (ret == -EIO) {  // TODO: Find a way to deal with this
-            /* issue a reset command to the sensor */
-            // reset();
-
-            /* reset the collection state machine and try again - we need
-             * to wait 2.8 ms after issuing the sensor reset command
-             * according to the MCP9808 datasheet
-             */
-            // _collect_phase = false;
-            // ScheduleDelayed(2800);
             return;
         }
 
@@ -262,11 +202,6 @@ void MCP9808::RunImpl()
     ret = measure();
 
     if (ret == -EIO) {  // TODO: Find a way to deal with this
-        /* issue a reset command to the sensor */
-        // reset();
-
-        /* reset the collection state machine and try again */
-        // start();
         return;
     }
 
@@ -280,16 +215,11 @@ void MCP9808::RunImpl()
 int MCP9808::measure()
 {
     perf_begin(_measure_perf);
-
-    // Send the command to read the ADC for P and T.
-    // unsigned addr = (MCP9808_CTRL_REG1 << 8) | MCP9808_CTRL_TRIGGER;
-
     /*
      * Disable retries on this command; we can't know whether failure
      * means the device did or did not see the command.
      */
-    // _retries = 0;
-    // int ret = RegisterWrite((addr >> 8) & 0xff, addr & 0xff);
+    _retries = 0;
 
     // Select the temperature register so subsequent read commands do not
     // have to specify it
@@ -310,20 +240,6 @@ int MCP9808::collect()
 {
     perf_begin(_sample_perf);
 
-//    uint8_t ctrl{};
-//    int ret = RegisterRead(MCP9808_REG_AMB_TEMP, (void *)&ctrl, 1);
-//
-//    if (ret == -EIO) {
-//        perf_end(_sample_perf);
-//        return ret;
-//    }
-//
-//    if (ctrl & CTRL_REG1_OST) {
-//        perf_end(_sample_perf);
-//        return -EAGAIN;
-//    }
-
-
     /* read the most recent measurement
      * 2 bytes for temperature
      */
@@ -342,42 +258,14 @@ int MCP9808::collect()
     temp = (float) (temp / (float) 16.0);
     if (raw & 0x1000) temp -= 256;
 
-    PX4_INFO("Temperature measured: %i", (int)temp);
-
-//#pragma pack(push, 1)
-//    struct MCP9808_data_t {
-//        union {
-//            uint32_t q;
-//            uint16_t w[sizeof(q) / sizeof(uint16_t)];
-//            uint8_t  b[sizeof(q) / sizeof(uint8_t)];
-//        } pressure;
-//
-//        union {
-//            uint16_t w;
-//            uint8_t  b[sizeof(w)];
-//        } temperature;
-//    } reading;
-//#pragma pack(pop)
-//
-//    reading.pressure.q = ((uint32_t)b[0]) << 18 | ((uint32_t) b[1]) << 10 | (((uint32_t)b[2]) & 0xc0) << 2 | ((
-//            b[2] & 0x30) >> 4);
-//    reading.temperature.w = ((uint16_t) b[3]) << 8 | (b[4] >> 4);
-//
-//    float T = (float) reading.temperature.b[1] + ((float)(reading.temperature.b[0]) / 16.0f);
-//    float P = (float)(reading.pressure.q >> 8) + ((float)(reading.pressure.b[0]) / 4.0f);
-//
-//    _px4_barometer.set_error_count(perf_event_count(_comms_errors));
-//    _px4_barometer.set_temperature(T);
-//    _px4_barometer.update(timestamp_sample, P / 100.0f);
-//
-//    perf_end(_sample_perf);
-
     sensor_temp_s &report = _sensor_temp_pub.get();
 
     report.timestamp_sample = timestamp_sample;
     report.temperature = temp;
     report.timestamp = hrt_absolute_time();
     _sensor_temp_pub.update();
+
+    perf_end(_sample_perf);
 
     return PX4_OK;
 }
@@ -404,21 +292,16 @@ I2CSPIDriverBase *MCP9808::instantiate(const BusCLIArguments &cli, const BusInst
                                          int runtime_instance)
 {
     MCP9808 *dev = new MCP9808(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency, cli.i2c_address);
-    PX4_INFO("instantiate called on MCP9808");
 
     if (dev == nullptr) {
-        PX4_INFO("dev is null");
         PX4_ERR("alloc failed");
         return nullptr;
     }
 
     if (OK != dev->init()) {
-        PX4_INFO("problems with init");
         delete dev;
         return nullptr;
     }
-
-    PX4_INFO("everything is fine with instantiate");
 
     return dev;
 }
@@ -437,7 +320,7 @@ extern "C" int mcp9808_main(int argc, char *argv[])
         return -1;
     }
 
-    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_TEMP_DEVTYPE_MCP9808);
+    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_BARO_DEVTYPE_MPL3115A2);
 
     if (!strcmp(verb, "start")) {
         return ThisDriver::module_start(cli, iterator);
