@@ -49,7 +49,6 @@ MPL3115A2::print_usage()
 I2CSPIDriverBase *MPL3115A2::instantiate(const BusCLIArguments &cli, const BusInstanceIterator &iterator,
 		int runtime_instance)
 {
-    PX4_INFO("instantiate called on MPL3115A2");
 	MPL3115A2 *dev = new MPL3115A2(iterator.configuredBusOption(), iterator.bus(), cli.bus_frequency);
 
 	if (dev == nullptr) {

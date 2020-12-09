@@ -40,14 +40,12 @@ namespace px4
 WorkItemSingleShot::WorkItemSingleShot(const px4::wq_config_t &config, worker_method method, void *argument)
 	: px4::WorkItem("<single_shot>", config), _argument(argument), _method(method)
 {
-    // PX4_INFO("expected WorkItemSingleShot constructor called");
 	px4_sem_init(&_sem, 0, 0);
 }
 
 WorkItemSingleShot::WorkItemSingleShot(const px4::WorkItem &work_item, worker_method method, void *argument)
 	: px4::WorkItem("<single_shot>", work_item), _argument(argument), _method(method)
 {
-    // PX4_INFO("non-expected constructor called");
 	px4_sem_init(&_sem, 0, 0);
 }
 
@@ -58,14 +56,11 @@ WorkItemSingleShot::~WorkItemSingleShot()
 
 void WorkItemSingleShot::wait()
 {
-    // PX4_INFO("workitemsingleshot wait called");
 	while (px4_sem_wait(&_sem) != 0) {}
-    // PX4_INFO("workitemsingleshot wait finished");
 }
 
 void WorkItemSingleShot::Run()
 {
-    // PX4_INFO("workitemsingleshot Run called");
 	_method(_argument);
 	px4_sem_post(&_sem);
 }

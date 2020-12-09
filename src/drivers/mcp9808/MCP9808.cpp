@@ -33,11 +33,10 @@
 
 /**
  * @file MCP9808.hpp
+ * @author Jakob Schoser
  *
  * Driver for the MCP9808 temperature sensor connected via I2C. Inspired by the
  * MPL3115A2 barometer driver.
- * Note: the driver can currently be started more than once on the same I2C
- * address. This will simply create duplicate publications
  */
 
 #include <drivers/device/i2c.h>
@@ -104,7 +103,7 @@ private:
 
 MCP9808::MCP9808(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address) :
         I2C(DRV_TEMP_DEVTYPE_MCP9808, MODULE_NAME, bus, address, bus_frequency),
-        I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus),
+        I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus, address),
         _sensor_temp_pub{ORB_ID(sensor_temp), ORB_PRIO_DEFAULT},
         _sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": read")),
         _measure_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": measure")),
