@@ -331,12 +331,14 @@ VolzOutput::init()
     } while (0);
 
     PX4_INFO("sending mock command");
-    Command command = pos_cmd(1, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
+    Command command = pos_cmd(0.5, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
     write_command(command);
 
+    PX4_INFO("fd is %i", _fd);
     // close the fd
     ::close(_fd);
     _fd = -1;
+    PX4_INFO("fd is now %i", _fd);
 
 	ScheduleNow();
 	PX4_INFO("scheduled");
@@ -372,6 +374,7 @@ VolzOutput::task_spawn(int argc, char *argv[])
 
 int VolzOutput::sendCommandThreadSafe(Command command)
 {
+    PX4_INFO("fd is %i", _fd);
 	_new_command.store(&command);
 
 	PX4_INFO("Starting command upload");
@@ -392,13 +395,11 @@ void VolzOutput::mixerChanged()
 bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS],
 				unsigned num_outputs, unsigned num_control_groups_updated)
 {
-    PX4_INFO("updateOutputs called");
     if (_fd < 0) {
         return false;
     }
 
 	if (stop_motors) {
-	    PX4_INFO("motors stopped");
 		// when motors are stopped we check if we have other commands to send
 		for (int i = 0; i < (int)num_outputs; i++) {
             Command command = pos_cmd(0, i + 1);  // Set actuators to idle positions
@@ -408,7 +409,6 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
         // when motors are stopped we check if we have other commands to send
         if (_current_command.valid()) {
             write_command(_current_command);
-            --_current_command.num_repetitions;
         }
 
 	} else {
@@ -611,6 +611,7 @@ bool VolzOutput::write_command(Command command) {
     }
 
     command.last_send_time = hrt_absolute_time();
+    --command.num_repetitions;
     int ret = ::write(_fd, command.cmd, sizeof(command.cmd));
 
     if (ret < 0) {
@@ -684,12 +685,10 @@ VolzOutput::Run()
     // fds initialized?
     if (_fd < 0) {
         // open fd
-        PX4_INFO("Opened port in Run");
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
 
         // TODO: Remove before deployment
-        // Command command = pos_cmd(1, 0x1F);
-        // ::write(_fd, command.cmd, sizeof(command.cmd));
+        // write_command(pos_cmd(1));
     }
 
 	if (should_exit()) {
@@ -706,7 +705,7 @@ VolzOutput::Run()
 
 	_mixing_output.update();
 
-	update_telemetry();
+	// update_telemetry();
 
 	// TODO: Check for old commands that have not been responded to yet
 
@@ -719,16 +718,17 @@ VolzOutput::Run()
 	}
 
 	// new command?
-	if (!_current_command.valid()) {
-	    PX4_INFO("Old command no longer valid");
+	// TODO: Make this if statement work somehow
+	// if (!_current_command.valid()) {
 		Command *new_command = _new_command.load();
 
 		if (new_command) {
-            PX4_INFO("New command is valid");
 			_current_command = *new_command;
 			_new_command.store(nullptr);
+			// TODO: don't write it here, but in updateOutputs instead
+			write_command(_current_command);
 		}
-	}
+	// }
 
 	// check at end of cycle (updateSubscriptions() can potentially change to a different WorkQueue thread)
 	_mixing_output.updateSubscriptions(true);
@@ -801,7 +801,6 @@ VolzOutput::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 		break;
 
 	case MIXERIOCLOADBUF: {
-	    PX4_INFO("mixer loading");
 			const char *buf = (const char *)arg;
 			unsigned buflen = strlen(buf);
 			ret = _mixing_output.loadMixerThreadSafe(buf, buflen);
@@ -870,7 +869,7 @@ int VolzOutput::custom_command(int argc, char *argv[])
 
     if (!strcmp(verb, "pos_cmd")) {
         if (pos < (float)MIN_VALUE) {
-            PX4_INFO("pos is %lf and MIN_VALUE is %i", (double)pos, MIN_VALUE);
+            PX4_INFO("pos is %lf and MIN_VALUE is %i. fd is %i", (double)pos, MIN_VALUE, get_instance()->_fd);
             PX4_ERR("enter a position between -100 and 100");
             return -1;
         } else {
@@ -878,7 +877,7 @@ int VolzOutput::custom_command(int argc, char *argv[])
             return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_id")) {
-        if (new_id != VOLZ_ID_UNKNOWN) {
+        if (new_id == VOLZ_ID_UNKNOWN) {
             PX4_ERR("set an ID between 0x01 and 0x1E");
             return -1;
         } else {
@@ -910,6 +909,7 @@ int VolzOutput::custom_command(int argc, char *argv[])
 
 int VolzOutput::print_status()
 {
+    PX4_INFO("running");
 	perf_print_counter(_cycle_perf);
 	_mixing_output.printStatus();
 
