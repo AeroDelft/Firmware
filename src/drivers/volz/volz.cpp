@@ -157,9 +157,9 @@ private:
 
 	void Run() override;
 
-	static constexpr uint16_t DISARMED_VALUE = -2;
-    static constexpr uint16_t MIN_VALUE = -1;
-    static constexpr uint16_t MAX_VALUE = 1;
+	static constexpr int DISARMED_VALUE = -2;
+    static constexpr int MIN_VALUE = -1;
+    static constexpr int MAX_VALUE = 1;
 
     static constexpr int VOLZ_POS_MIN = 0x0060;
     static constexpr int VOLZ_POS_CENTER = 0x1000;
@@ -331,7 +331,7 @@ VolzOutput::init()
     } while (0);
 
     PX4_INFO("sending mock command");
-    Command command = pos_cmd(-1, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
+    Command command = pos_cmd(1, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
     write_command(command);
 
     // close the fd
@@ -339,6 +339,7 @@ VolzOutput::init()
     _fd = -1;
 
 	ScheduleNow();
+	PX4_INFO("scheduled");
 
 	return 0;
 }
@@ -373,11 +374,12 @@ int VolzOutput::sendCommandThreadSafe(Command command)
 {
 	_new_command.store(&command);
 
+	PX4_INFO("Starting command upload");
 	// wait until main thread processed it
 	while (_new_command.load()) {
 		px4_usleep(1000);
 	}
-
+    PX4_INFO("Finished command upload");
 	return 0;
 }
 
@@ -390,11 +392,13 @@ void VolzOutput::mixerChanged()
 bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS],
 				unsigned num_outputs, unsigned num_control_groups_updated)
 {
+    PX4_INFO("updateOutputs called");
     if (_fd < 0) {
         return false;
     }
 
 	if (stop_motors) {
+	    PX4_INFO("motors stopped");
 		// when motors are stopped we check if we have other commands to send
 		for (int i = 0; i < (int)num_outputs; i++) {
             Command command = pos_cmd(0, i + 1);  // Set actuators to idle positions
@@ -409,14 +413,15 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
 
 	} else {
 		for (int i = 0; i < (int)num_outputs; i++) {
-			if (outputs[i] == DISARMED_VALUE) {
-			    Command command = pos_cmd(0, i + 1);
-				write_command(command);
-
-			} else {
+		    // TODO: Put this back in and decide what you want to use for DISARMED_VALUE. Can't be negative
+//			if (outputs[i] == DISARMED_VALUE) {
+//			    Command command = pos_cmd(0, i + 1);
+//				write_command(command);
+//
+//			} else {
                 Command command = pos_cmd(outputs[i], i + 1);
                 write_command(command);
-			}
+//			}
 		}
 
 		// clear commands when motors are running
@@ -679,6 +684,7 @@ VolzOutput::Run()
     // fds initialized?
     if (_fd < 0) {
         // open fd
+        PX4_INFO("Opened port in Run");
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
 
         // TODO: Remove before deployment
@@ -714,9 +720,11 @@ VolzOutput::Run()
 
 	// new command?
 	if (!_current_command.valid()) {
+	    PX4_INFO("Old command no longer valid");
 		Command *new_command = _new_command.load();
 
 		if (new_command) {
+            PX4_INFO("New command is valid");
 			_current_command = *new_command;
 			_new_command.store(nullptr);
 		}
@@ -793,6 +801,7 @@ VolzOutput::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 		break;
 
 	case MIXERIOCLOADBUF: {
+	    PX4_INFO("mixer loading");
 			const char *buf = (const char *)arg;
 			unsigned buflen = strlen(buf);
 			ret = _mixing_output.loadMixerThreadSafe(buf, buflen);
@@ -805,6 +814,8 @@ VolzOutput::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 	}
 
 	unlock();
+
+	PX4_INFO("unlocked");
 
 	return ret;
 }
@@ -831,12 +842,14 @@ int VolzOutput::custom_command(int argc, char *argv[])
 	const char *myoptarg = nullptr;
 
 	while ((ch = px4_getopt(argc, argv, "i:p:n:t:", &myoptind, &myoptarg)) != EOF) {
+        PX4_INFO("called px4_getopt");
 		switch (ch) {
 		case 'i':
 			actuator_id = strtol(myoptarg, nullptr, 10);
 			break;
         case 'p':
-            pos = strtol(myoptarg, nullptr, 10);
+            PX4_INFO("position flag recognised. myoptarg: %s", myoptarg);
+            pos = (float)strtol(myoptarg, nullptr, 10) / 100;  // TODO: Decide if you really want this
             break;
         case 'n':
             new_id = strtol(myoptarg, nullptr, 10);
@@ -856,10 +869,12 @@ int VolzOutput::custom_command(int argc, char *argv[])
     }
 
     if (!strcmp(verb, "pos_cmd")) {
-        if (pos < MIN_VALUE) {
-            PX4_ERR("enter a position between -1 and 1");
+        if (pos < (float)MIN_VALUE) {
+            PX4_INFO("pos is %lf and MIN_VALUE is %i", (double)pos, MIN_VALUE);
+            PX4_ERR("enter a position between -100 and 100");
             return -1;
         } else {
+            PX4_INFO("sent command with pos %lf to id %i", (double)pos, actuator_id);
             return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_id")) {
