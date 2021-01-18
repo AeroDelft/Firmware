@@ -244,7 +244,6 @@ VolzOutput::~VolzOutput()
 int
 VolzOutput::init()
 {
-    PX4_INFO("volz init called");
 	/* do regular cdev init */
 	int ret = CDev::init();
 
@@ -269,7 +268,6 @@ VolzOutput::init()
 	// TODO: Find out how this code works (taken from TFMINI.cpp). Check out dshot's telemetry.cpp
 
     do { // create a scope to handle exit conditions using break
-        PX4_INFO("configuring serial port");
         // open fd
         _fd = ::open(_port, O_RDWR | O_NOCTTY);
 
@@ -331,17 +329,13 @@ VolzOutput::init()
     } while (0);
 
     PX4_INFO("sending mock command");
-    Command command = pos_cmd(0.5, VOLZ_ID_UNKNOWN);  // TODO: Remove before deployment
-    write_command(command);
+    write_command(pos_cmd(0.5, VOLZ_ID_UNKNOWN)); // TODO: Remove before deployment
 
-    PX4_INFO("fd is %i", _fd);
     // close the fd
     ::close(_fd);
     _fd = -1;
-    PX4_INFO("fd is now %i", _fd);
 
 	ScheduleNow();
-	PX4_INFO("scheduled");
 
 	return 0;
 }
@@ -349,7 +343,6 @@ VolzOutput::init()
 int
 VolzOutput::task_spawn(int argc, char *argv[])
 {
-    PX4_INFO("task spawn called");
 	VolzOutput *instance = new VolzOutput();
 
 	if (instance) {
@@ -357,7 +350,6 @@ VolzOutput::task_spawn(int argc, char *argv[])
 		_task_id = task_id_is_work_queue;
 
 		if (instance->init() == PX4_OK) {
-            PX4_INFO("task spawn and init successful");
 			return PX4_OK;
 		}
 
@@ -374,7 +366,6 @@ VolzOutput::task_spawn(int argc, char *argv[])
 
 int VolzOutput::sendCommandThreadSafe(Command command)
 {
-    PX4_INFO("fd is %i", _fd);
 	_new_command.store(&command);
 
 	PX4_INFO("Starting command upload");
@@ -610,8 +601,8 @@ bool VolzOutput::write_command(Command command) {
         return false;
     }
 
-    command.last_send_time = hrt_absolute_time();
     --command.num_repetitions;
+    command.last_send_time = hrt_absolute_time();
     int ret = ::write(_fd, command.cmd, sizeof(command.cmd));
 
     if (ret < 0) {
@@ -686,6 +677,7 @@ VolzOutput::Run()
     if (_fd < 0) {
         // open fd
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
+        PX4_INFO("_fd set up and ready to go!");
 
         // TODO: Remove before deployment
         // write_command(pos_cmd(1));
@@ -814,8 +806,6 @@ VolzOutput::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 
 	unlock();
 
-	PX4_INFO("unlocked");
-
 	return ret;
 }
 
@@ -841,13 +831,11 @@ int VolzOutput::custom_command(int argc, char *argv[])
 	const char *myoptarg = nullptr;
 
 	while ((ch = px4_getopt(argc, argv, "i:p:n:t:", &myoptind, &myoptarg)) != EOF) {
-        PX4_INFO("called px4_getopt");
 		switch (ch) {
 		case 'i':
 			actuator_id = strtol(myoptarg, nullptr, 10);
 			break;
         case 'p':
-            PX4_INFO("position flag recognised. myoptarg: %s", myoptarg);
             pos = (float)strtol(myoptarg, nullptr, 10) / 100;  // TODO: Decide if you really want this
             break;
         case 'n':
@@ -869,7 +857,6 @@ int VolzOutput::custom_command(int argc, char *argv[])
 
     if (!strcmp(verb, "pos_cmd")) {
         if (pos < (float)MIN_VALUE) {
-            PX4_INFO("pos is %lf and MIN_VALUE is %i. fd is %i", (double)pos, MIN_VALUE, get_instance()->_fd);
             PX4_ERR("enter a position between -100 and 100");
             return -1;
         } else {
@@ -946,7 +933,7 @@ occur in the mixer file.
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("pos_cmd", "Command actuator to given position");
     PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
-    PRINT_MODULE_USAGE_PARAM_FLOAT('p', DISARMED_VALUE, -1, 1, "Position", false);
+    PRINT_MODULE_USAGE_PARAM_FLOAT('p', DISARMED_VALUE, -100, 100, "Position", false);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set new actuator ID");
     PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Old actuator ID", true);
