@@ -57,7 +57,6 @@
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/actuator_armed.h>
 #include <uORB/topics/actuator_controls.h>
-#include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/multirotor_motor_limits.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/esc_status.h>
@@ -157,9 +156,10 @@ private:
 
 	void Run() override;
 
-	static constexpr int DISARMED_VALUE = -2;
-    static constexpr int MIN_VALUE = -1;
-    static constexpr int MAX_VALUE = 1;
+	static constexpr uint16_t DISARMED_VALUE = 0;
+    static constexpr uint16_t MIN_VALUE = DISARMED_VALUE + 1;
+    static constexpr uint16_t MAX_VALUE = MIN_VALUE + 1000;
+    uint16_t _idle_value[MAX_ACTUATORS] {};
 
     static constexpr int VOLZ_POS_MIN = 0x0060;
     static constexpr int VOLZ_POS_CENTER = 0x1000;
@@ -170,8 +170,12 @@ private:
 	const char *_port = "/dev/ttyS2";
 
 	MixingOutput _mixing_output{DIRECT_PWM_OUTPUT_CHANNELS, *this, MixingOutput::SchedulingPolicy::Auto, false, false};
+    int update_rate{50};
 
 	uORB::Subscription _param_sub{ORB_ID(parameter_update)};
+    uORB::Subscription _actuator_controls_sub{ORB_ID(actuator_controls_0)};
+
+    actuator_controls_s _controls{};
 
     Command _current_command;
     px4::atomic<Command *> _new_command{nullptr};
@@ -196,7 +200,7 @@ private:
     static int highbyte(int value);
     static int lowbyte(int value);
 
-    static Command pos_cmd(float pos, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
+    static Command pos_cmd(int pos, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
     static Command set_actuator_id(int new_id, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
     static Command set_failsafe_timeout(float timeout, int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
     static Command set_current_pos_as_failsafe(int id = VOLZ_ID_UNKNOWN, int num_repetitions = 1);
@@ -223,6 +227,11 @@ VolzOutput::VolzOutput() :
 	_mixing_output.setAllMinValues(MIN_VALUE);
 	_mixing_output.setAllMaxValues(MAX_VALUE);
 
+    _mixing_output.setMaxTopicUpdateRate(1000000 / update_rate);
+
+    for (unsigned i = 0; i < MAX_ACTUATORS; i++) {
+        _idle_value[i] = (MAX_VALUE + MIN_VALUE) / 2;
+    }
 }
 
 VolzOutput::~VolzOutput()
@@ -328,8 +337,8 @@ VolzOutput::init()
         }
     } while (0);
 
-    PX4_INFO("sending mock command");
-    write_command(pos_cmd(0.5, VOLZ_ID_UNKNOWN)); // TODO: Remove before deployment
+//    PX4_INFO("sending test command");
+//    write_command(pos_cmd(0.5, VOLZ_ID_UNKNOWN)); // TODO: Remove before deployment
 
     // close the fd
     ::close(_fd);
@@ -390,10 +399,13 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
         return false;
     }
 
-	if (stop_motors) {
+//    PX4_INFO("updateOutputs called with stop_motors = %i, %i as first control input, num_outputs = %i and "
+//             "num_control_groups_updated = %i", stop_motors, (int)outputs[0], num_outputs, num_control_groups_updated);
+
+	if (false) {//!_mixing_output.armed().prearmed && !_mixing_output.armed().armed) {
 		// when motors are stopped we check if we have other commands to send
-		for (int i = 0; i < (int)num_outputs; i++) {
-            Command command = pos_cmd(0, i + 1);  // Set actuators to idle positions
+		for (unsigned i = 0; i < num_outputs; i++) {
+            Command command = pos_cmd(_idle_value[i], i + 1);  // Set actuators to idle positions
             write_command(command);
 		}
 
@@ -403,16 +415,15 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
         }
 
 	} else {
-		for (int i = 0; i < (int)num_outputs; i++) {
-		    // TODO: Put this back in and decide what you want to use for DISARMED_VALUE. Can't be negative
-//			if (outputs[i] == DISARMED_VALUE) {
-//			    Command command = pos_cmd(0, i + 1);
-//				write_command(command);
-//
-//			} else {
-                Command command = pos_cmd(outputs[i], i + 1);
-                write_command(command);
-//			}
+		for (unsigned i = 0; i < num_outputs; i++) {
+		    Command command;
+			if (outputs[i] == DISARMED_VALUE) {
+			    command = pos_cmd(_idle_value[i], i + 1);
+
+			} else {
+                command = pos_cmd(outputs[i], i + 1);
+			}
+            write_command(command);
 		}
 
 		// clear commands when motors are running
@@ -451,8 +462,8 @@ int VolzOutput::generate_crc(int cmd, int actuator_id, int arg_1, int arg_2)	{
     return crc;
 }
 
-VolzOutput::Command VolzOutput::pos_cmd(float pos, int id, int num_repetitions) {
-    int arg = VOLZ_POS_CENTER + (int)(pos * (VOLZ_POS_CENTER - VOLZ_POS_MIN));
+VolzOutput::Command VolzOutput::pos_cmd(int pos, int id, int num_repetitions) {
+    int arg = VOLZ_POS_CENTER + (pos - (MAX_VALUE + MIN_VALUE) / 2) * 2 / (MAX_VALUE - MIN_VALUE) * (VOLZ_POS_CENTER - VOLZ_POS_MIN);
     uint8_t arg_1 = highbyte(arg);
     uint8_t arg_2 = lowbyte(arg);
     int crc_cmd = generate_crc(volz_command_t::POS_CMD, id, arg_1, arg_2);
@@ -615,10 +626,9 @@ bool VolzOutput::write_command(Command command) {
         idx = RESP_QUEUE_LEN - 1;
     }
 
-    if (waiting_for_resp[idx]) {
-        PX4_INFO("Received no response to command on servo %d", idx);
-        PX4_ERR("Received no response to command on servo %d", idx);
-    }
+//    if (waiting_for_resp[idx]) {
+//        PX4_ERR("Received no response to command on servo %d before sending new command", idx);
+//    }
 
     sent_commands[idx] = command;
     waiting_for_resp[idx] = true;
@@ -662,7 +672,6 @@ bool VolzOutput::update_telemetry() {
             }
             if (!response_matched) {
                 // TODO: do something
-                PX4_INFO("Received unexpected response");
                 PX4_ERR("Received unexpected response");
             }
         }
@@ -677,7 +686,6 @@ VolzOutput::Run()
     if (_fd < 0) {
         // open fd
         _fd = ::open(_port, O_RDWR | O_NOCTTY); // TODO: Check if flags are right
-        PX4_INFO("_fd set up and ready to go!");
 
         // TODO: Remove before deployment
         // write_command(pos_cmd(1));
@@ -709,10 +717,15 @@ VolzOutput::Run()
 		update_params();
 	}
 
+//	if (_actuator_controls_sub.update(&_controls)) {
+//        PX4_INFO("Actuator controls have been updated: %f", (double)_controls.control[_controls.INDEX_ROLL]);
+//	    write_command(pos_cmd(_controls.control[_controls.INDEX_ROLL], VOLZ_ID_UNKNOWN));
+//	}
+
 	// new command?
 	// TODO: Make this if statement work somehow
 	// if (!_current_command.valid()) {
-		Command *new_command = _new_command.load();
+	    Command *new_command = _new_command.load();
 
 		if (new_command) {
 			_current_command = *new_command;
@@ -836,7 +849,7 @@ int VolzOutput::custom_command(int argc, char *argv[])
 			actuator_id = strtol(myoptarg, nullptr, 10);
 			break;
         case 'p':
-            pos = (float)strtol(myoptarg, nullptr, 10) / 100;  // TODO: Decide if you really want this
+            pos = strtol(myoptarg, nullptr, 10);
             break;
         case 'n':
             new_id = strtol(myoptarg, nullptr, 10);
@@ -856,11 +869,10 @@ int VolzOutput::custom_command(int argc, char *argv[])
     }
 
     if (!strcmp(verb, "pos_cmd")) {
-        if (pos < (float)MIN_VALUE) {
-            PX4_ERR("enter a position between -100 and 100");
+        if (pos < MIN_VALUE || pos > MAX_VALUE) {
+            PX4_ERR("enter a position between %i and %i", MIN_VALUE, MAX_VALUE);
             return -1;
         } else {
-            PX4_INFO("sent command with pos %lf to id %i", (double)pos, actuator_id);
             return get_instance()->sendCommandThreadSafe(pos_cmd(pos, actuator_id, 1));
         }
     } else if (!strcmp(verb, "set_id")) {
@@ -922,7 +934,9 @@ It supports:
     - set failsafe timeout
     - set current position as new failsafe position
     - set current position as new zero
-- integrating the actuator into the control pipeline, i.e. carry out commands by the flight controller + RC
+- integrating the actuator into the control pipeline, i.e. carry out commands by the flight controller. For this to
+work, the actuators should have IDs corresponding to the index of their control value in the mixer output (starting
+from 1).
 
 For actuator IDs, start counting from 0x01 upwards. The actuators should be numbered in the order in which they
 occur in the mixer file.
@@ -933,7 +947,7 @@ occur in the mixer file.
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("pos_cmd", "Command actuator to given position");
     PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Actuator ID", true);
-    PRINT_MODULE_USAGE_PARAM_FLOAT('p', DISARMED_VALUE, -100, 100, "Position", false);
+    PRINT_MODULE_USAGE_PARAM_FLOAT('p', DISARMED_VALUE, MIN_VALUE, MAX_VALUE, "Position", false);
 
     PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set new actuator ID");
     PRINT_MODULE_USAGE_PARAM_INT('i', VOLZ_ID_UNKNOWN, 0x01, 0x1E, "Old actuator ID", true);

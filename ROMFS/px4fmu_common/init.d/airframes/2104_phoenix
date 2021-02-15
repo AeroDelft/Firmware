@@ -1,0 +1,59 @@
+#!/bin/sh
+#
+# @name AeroDelft Phoenix
+#
+# @type Standard Plane
+# @class Plane
+#
+# @output MAIN1 throttle
+# @output MAIN2 speed brakes
+#
+# @maintainer Jakob Schoser <jakob.schoser@aerodelft.nl>
+#
+# @board px4_fmu-v2 exclude
+# @board intel_aerofc-v1 exclude
+# @board bitcraze_crazyflie exclude
+#
+
+sh /etc/init.d/rc.fw_defaults
+
+if [ $AUTOCNF = yes ]
+then
+	param set FW_AIRSPD_MIN 20
+	param set FW_AIRSPD_TRIM 24
+	param set FW_AIRSPD_MAX 30
+
+	param set FW_MAN_P_MAX 55
+	param set FW_MAN_R_MAX 55
+	param set FW_R_LIM 55
+
+	param set FW_WR_FF 0.2
+	param set FW_WR_I 0.2
+	param set FW_WR_IMAX 0.8
+	param set FW_WR_P 1
+	param set FW_W_RMAX 0
+
+	# set disarmed value for the ESC
+	param set PWM_DISARMED 1000
+fi
+
+# load the throttle and spoiler mixer for PWM output
+set MIXER TSS
+
+# use PWM parameters for throttle channel
+set PWM_OUT 1
+
+# start the volz driver with the corresponding mixer
+volz start
+if mixer load /dev/volz /etc/mixers/AAEERB.main.mix
+	then
+		echo "INFO  [init] Mixer: /etc/mixers/AAEERB.main.mix on /dev/volz"
+	else
+		echo "ERROR  [init] Failed loading mixer: /etc/mixers/AAEERB.main.mix"
+
+# start the two temperature sensor drivers
+mcp9808 start -X -b 2 -a 24
+mcp9808 start -X -b 2 -a 26
+
+# start the barometer
+mpl3115a2 start -X -b 2

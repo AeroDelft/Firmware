@@ -1,0 +1,62 @@
+Aileron/elevator/rudder/brakes mixer for PX4FMU
+=======================================================
+
+This file defines mixers for controlling a fixed wing aircraft with
+two aileron servos, two elevator servos, one rudder and a wheel brake.
+The configuration assumes the aileron servos respond to the output channels
+0 and 1, the split elevator to output 2 and 3, the rudder to output 4, and the
+wheel brakes to output 5.
+
+Inputs to the mixer come from channel group 0 (vehicle attitude), channels 0
+(roll), 1 (pitch), and 2 (yaw). From group 3 (manual passthrough), channel 5
+(RC aux 1) is used.
+
+Aileron mixer (roll)
+---------------------------------
+
+This mixer assumes that the aileron servos are set up correctly mechanically;
+depending on the actual configuration it may be necessary to reverse the scaling
+factors (to reverse the servo movement) and adjust the offset, scaling and
+endpoints to suit.
+
+TODO: Shall we also activate ailerons when turning on the speed brakes?
+
+M: 2
+S: 0 0  10000  10000      0 -10000  10000
+
+M: 2
+S: 0 0  10000  10000      0 -10000  10000
+
+Elevator mixer
+------------
+Two scalers total (output, roll).
+
+This mixer assumes that the elevator servo is set up correctly mechanically;
+depending on the actual configuration it may be necessary to reverse the scaling
+factors (to reverse the servo movement) and adjust the offset, scaling and
+endpoints to suit.
+
+M: 1
+S: 0 1  -10000  -10000      0 -10000  10000
+
+M: 1
+S: 0 1  -10000  -10000      0 -10000  10000
+
+Rudder mixer
+------------
+Two scalers total (output, yaw).
+
+This mixer assumes that the rudder servo is set up correctly mechanically;
+depending on the actual configuration it may be necessary to reverse the scaling
+factors (to reverse the servo movement) and adjust the offset, scaling and
+endpoints to suit.
+
+M: 1
+S: 0 2  10000  10000      0 -10000  10000
+
+Wheel brake mixer
+------------
+TODO: Verify that this is correct
+
+M: 1
+S: 3 5  10000  10000      0 -10000  10000

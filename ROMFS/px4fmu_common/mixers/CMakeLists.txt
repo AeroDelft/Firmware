@@ -32,6 +32,8 @@
 ############################################################################
 
 px4_add_romfs_files(
+	AAEERB.main.mix
+	TSS.main.mix
 	AAERTWF.main.mix
 	AAVVTWFF.main.mix
 	AERT.main.mix
