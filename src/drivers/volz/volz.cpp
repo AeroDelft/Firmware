@@ -278,7 +278,7 @@ VolzOutput::init()
 
     do { // create a scope to handle exit conditions using break
         // open fd
-        _fd = ::open(_port, O_RDWR | O_NOCTTY);
+        _fd = ::open(_port, O_RDWR | O_NOCTTY | O_NONBLOCK);
 
         if (_fd < 0) {
             PX4_ERR("Error opening fd");
@@ -344,6 +344,8 @@ VolzOutput::init()
     ::close(_fd);
     _fd = -1;
 
+    PX4_INFO("started");
+
 	ScheduleNow();
 
 	return 0;
@@ -395,6 +397,7 @@ void VolzOutput::mixerChanged()
 bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS],
 				unsigned num_outputs, unsigned num_control_groups_updated)
 {
+    // PX4_INFO("updateOutputs");
     if (_fd < 0) {
         return false;
     }
@@ -402,7 +405,8 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
 //    PX4_INFO("updateOutputs called with stop_motors = %i, %i as first control input, num_outputs = %i and "
 //             "num_control_groups_updated = %i", stop_motors, (int)outputs[0], num_outputs, num_control_groups_updated);
 
-	if (false) {//!_mixing_output.armed().prearmed && !_mixing_output.armed().armed) {
+	if (!_mixing_output.armed().prearmed && !_mixing_output.armed().armed) {
+        // PX4_INFO("not prearmed");
 		// when motors are stopped we check if we have other commands to send
 		for (unsigned i = 0; i < num_outputs; i++) {
             Command command = pos_cmd(_idle_value[i], i + 1);  // Set actuators to idle positions
@@ -415,6 +419,7 @@ bool VolzOutput::updateOutputs(bool stop_motors, uint16_t outputs[MAX_ACTUATORS]
         }
 
 	} else {
+        // PX4_INFO("sending commands");
 		for (unsigned i = 0; i < num_outputs; i++) {
 		    Command command;
 			if (outputs[i] == DISARMED_VALUE) {

@@ -405,3 +405,15 @@ unset OUTPUT_CMD
 unset MIXER_AUX_FILE
 unset OUTPUT_AUX_DEV
 unset OUTPUT_DEV
+
+# Start volz driver if we are using the AeroDelft Phoenix airframe
+#if param compare SYS_AUTOSTART 2104
+#then
+#  volz start
+#  if mixer load /dev/volz /etc/mixers/AAEERB.main.mix
+#	then
+#		echo "INFO  [init] Mixer: /etc/mixers/AAEERB.main.mix on /dev/volz"
+#	else
+#		echo "ERROR  [init] Failed loading mixer: /etc/mixers/AAEERB.main.mix"
+#	fi
+#fi

@@ -1,4 +1,4 @@
-Aileron/elevator/rudder/brakes mixer for PX4FMU
+Throttle/speed brakes mixer for PX4FMU
 =======================================================
 
 This file defines mixers suitable for controlling throttle and two speed
