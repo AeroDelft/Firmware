@@ -61,6 +61,7 @@ px4_add_board(
 		uavcan
 		volz
 		mcp9808
+		simple_volz_output
 	MODULES
 		airspeed_selector
 		attitude_estimator_q
