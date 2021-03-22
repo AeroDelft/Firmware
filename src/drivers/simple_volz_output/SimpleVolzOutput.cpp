@@ -55,65 +55,65 @@ SimpleVolzOutput::~SimpleVolzOutput()
 
 bool SimpleVolzOutput::init()
 {
-    do { // create a scope to handle exit conditions using break
-
-        _fd = ::open(_port, O_RDWR | O_NOCTTY);
-
-        if (_fd < 0) {
-            PX4_ERR("Error opening fd");
-        }
-
-        // baudrate 115200, 8 bits, no parity, 1 stop bit
-        unsigned speed = B115200;
-        termios uart_config{};
-        int termios_state{};
-
-        tcgetattr(_fd, &uart_config);
-
-        // clear ONLCR flag (which appends a CR for every LF)
-        uart_config.c_oflag &= ~ONLCR;
-
-        // set baud rate
-        if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
-            PX4_ERR("CFG: %d ISPD", termios_state);
-            break;
-        }
-
-        if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
-            PX4_ERR("CFG: %d OSPD\n", termios_state);
-            break;
-        }
-
-        if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
-            PX4_ERR("baud %d ATTR", termios_state);
-            break;
-        }
-
-        uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
-        uart_config.c_cflag &= ~CSIZE;
-        uart_config.c_cflag |= CS8;			// 8-bit characters
-        uart_config.c_cflag &= ~PARENB;			// no parity bit
-        uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
-        uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
-
-        // setup for non-canonical mode
-        uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        uart_config.c_oflag &= ~OPOST;
-
-        // fetch bytes as they become available
-        uart_config.c_cc[VMIN] = 1;
-        uart_config.c_cc[VTIME] = 1;
-
-        if (_fd < 0) {
-            PX4_ERR("FAIL: laser fd");
-            break;
-        }
-    } while (0);
+//    do { // create a scope to handle exit conditions using break
+//
+//        _fd = ::open(_port, O_RDWR | O_NOCTTY);
+//
+//        if (_fd < 0) {
+//            PX4_ERR("Error opening fd");
+//        }
+//
+//        // baudrate 115200, 8 bits, no parity, 1 stop bit
+//        unsigned speed = B115200;
+//        termios uart_config{};
+//        int termios_state{};
+//
+//        tcgetattr(_fd, &uart_config);
+//
+//        // clear ONLCR flag (which appends a CR for every LF)
+//        uart_config.c_oflag &= ~ONLCR;
+//
+//        // set baud rate
+//        if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
+//            PX4_ERR("CFG: %d ISPD", termios_state);
+//            break;
+//        }
+//
+//        if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
+//            PX4_ERR("CFG: %d OSPD\n", termios_state);
+//            break;
+//        }
+//
+//        if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
+//            PX4_ERR("baud %d ATTR", termios_state);
+//            break;
+//        }
+//
+//        uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
+//        uart_config.c_cflag &= ~CSIZE;
+//        uart_config.c_cflag |= CS8;			// 8-bit characters
+//        uart_config.c_cflag &= ~PARENB;			// no parity bit
+//        uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
+//        uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
+//
+//        // setup for non-canonical mode
+//        uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+//        uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+//        uart_config.c_oflag &= ~OPOST;
+//
+//        // fetch bytes as they become available
+//        uart_config.c_cc[VMIN] = 1;
+//        uart_config.c_cc[VTIME] = 1;
+//
+//        if (_fd < 0) {
+//            PX4_ERR("FAIL: laser fd");
+//            break;
+//        }
+//    } while (0);
 
     // close the fd
-    ::close(_fd);
-    _fd = -1;
+//    ::close(_fd);
+//    _fd = -1;
 
 	ScheduleOnInterval(1000_us); // 1000 us interval, 1000 Hz rate
 
@@ -135,19 +135,77 @@ void SimpleVolzOutput::Run()
     // fds initialized?
     if (_fd < 0) {
         // open fd
-        _fd = ::open(_port, O_RDWR | O_NOCTTY);
-    }
+//        _fd = ::open(_port, O_RDWR | O_NOCTTY);
+        do { // create a scope to handle exit conditions using break
 
-    // send test command to the TELEM2 port
-    uint8_t cmd[VOLZ_CMD_LEN];
-    pos_cmd(MIN_VALUE + 3 / 4 * (MAX_VALUE - MIN_VALUE), cmd);
-    ::write(_fd, cmd, VOLZ_CMD_LEN);
+            _fd = ::open(_port, O_RDWR | O_NOCTTY);
+
+            if (_fd < 0) {
+                PX4_ERR("Error opening fd");
+            }
+
+            // baudrate 115200, 8 bits, no parity, 1 stop bit
+            unsigned speed = B115200;
+            termios uart_config{};
+            int termios_state{};
+
+            tcgetattr(_fd, &uart_config);
+
+            // clear ONLCR flag (which appends a CR for every LF)
+            uart_config.c_oflag &= ~ONLCR;
+
+            // set baud rate
+            if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
+                PX4_ERR("CFG: %d ISPD", termios_state);
+                break;
+            }
+
+            if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
+                PX4_ERR("CFG: %d OSPD\n", termios_state);
+                break;
+            }
+
+            if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
+                PX4_ERR("baud %d ATTR", termios_state);
+                break;
+            }
+
+            uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
+            uart_config.c_cflag &= ~CSIZE;
+            uart_config.c_cflag |= CS8;			// 8-bit characters
+            uart_config.c_cflag &= ~PARENB;			// no parity bit
+            uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
+            uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
+
+            // setup for non-canonical mode
+            uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+            uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+            uart_config.c_oflag &= ~OPOST;
+
+            // fetch bytes as they become available
+            uart_config.c_cc[VMIN] = 1;
+            uart_config.c_cc[VTIME] = 1;
+
+            if (_fd < 0) {
+                PX4_ERR("FAIL: laser fd");
+                break;
+            }
+        } while (0);
+
+    }
 
 	// Example
 	// grab latest accelerometer data
 	_sensor_accel_sub.update();
 	const sensor_accel_s &accel = _sensor_accel_sub.get();
 
+	_actuator_controls_sub.update();
+    const actuator_controls_s &ctrl = _actuator_controls_sub.get();
+
+    // send test command to the TELEM2 port
+    uint8_t cmd[VOLZ_CMD_LEN];
+    pos_cmd((int)(MIN_VALUE + (ctrl.control[0] + 1) / 2 * (MAX_VALUE - MIN_VALUE)), cmd);
+    ::write(_fd, cmd, VOLZ_CMD_LEN);
 
 	// Example
 	// publish some data

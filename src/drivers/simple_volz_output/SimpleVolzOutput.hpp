@@ -41,6 +41,7 @@
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <uORB/topics/orb_test.h>
 #include <uORB/topics/sensor_accel.h>
+#include <uORB/topics/actuator_controls.h>
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
@@ -80,12 +81,13 @@ private:
 	uORB::Publication<orb_test_s> _orb_test_pub{ORB_ID(orb_test)};
 
 	uORB::SubscriptionData<sensor_accel_s> _sensor_accel_sub{ORB_ID(sensor_accel)};
+    uORB::SubscriptionData<actuator_controls_s> _actuator_controls_sub{ORB_ID(actuator_controls_0)};
 
 	perf_counter_t	_loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
 	perf_counter_t	_loop_interval_perf{perf_alloc(PC_INTERVAL, MODULE_NAME": interval")};
 
 	int _fd{-1};
-	const char *_port = "/dev/ttyS2";
+	const char *_port = "/dev/ttyS3";
 
 	int highbyte(int value);
 	int lowbyte(int value);
