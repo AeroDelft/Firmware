@@ -39,6 +39,7 @@
 #include <px4_platform_common/module_params.h>
 #include <px4_platform_common/posix.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
+#include <px4_platform_common/atomic.h>
 #include <uORB/topics/orb_test.h>
 #include <uORB/topics/sensor_accel.h>
 #include <uORB/topics/actuator_controls.h>
@@ -66,14 +67,18 @@ public:
 
 	int print_status() override;
 
-    int VOLZ_CMD_LEN = 6;
-    int VOLZ_ID_UNKNOWN = 0x1F;
-    int POS_CMD = 0xDD;
-    uint16_t DISARMED_VALUE = 0;
-    uint16_t MIN_VALUE = DISARMED_VALUE + 1;
-    uint16_t MAX_VALUE = MIN_VALUE + 1000;
-    int VOLZ_POS_MIN = 0x0060;
-    int VOLZ_POS_CENTER = 0x1000;
+	static const int NUM_SERVOS = 6;
+
+    static const int VOLZ_CMD_LEN = 6;
+    static const int VOLZ_ID_UNKNOWN = 0x1F;
+    static const int POS_CMD = 0xDD;
+    static const int SET_ID = 0xAA;
+    static const int VOLZ_POS_MIN = 0x04A1;
+    static const int VOLZ_POS_MAX = 0x0B60;
+
+    static const uint16_t DISARMED_VALUE = 0;
+    static const uint16_t MIN_VALUE = DISARMED_VALUE + 1;
+    static const uint16_t MAX_VALUE = MIN_VALUE + 1000;
 
 private:
 	void Run() override;
@@ -89,8 +94,12 @@ private:
 	int _fd{-1};
 	const char *_port = "/dev/ttyS3";
 
-	int highbyte(int value);
-	int lowbyte(int value);
-	int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
-	void pos_cmd(int pos, uint8_t* cmd);
+	static int highbyte(int value);
+	static int lowbyte(int value);
+	static int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
+	static void pos_cmd(int id, int pos, uint8_t* cmd);
+	static void set_id(int old_id, int new_id, uint8_t* cmd);
+	void mix(const float* control, int* pos);
+
+    px4::atomic<uint8_t*> _cli_cmd{nullptr};
 };
