@@ -167,7 +167,7 @@ int SimpleVolzOutput::generate_crc(int cmd, int actuator_id, int arg_1, int arg_
     return crc;
 }
 
-void SimpleVolzOutput::pos_cmd(int id, int pos, uint8_t* cmd) {
+void SimpleVolzOutput::set_pos(int id, int pos, uint8_t* cmd) {
     // map position to range VOLZ_POS_MIN to VOLZ_POS_MAX
     int arg = VOLZ_POS_MIN + pos * (VOLZ_POS_MAX - VOLZ_POS_MIN) / (MAX_VALUE - MIN_VALUE);
     uint8_t arg_1 = highbyte(arg);
@@ -183,14 +183,23 @@ void SimpleVolzOutput::pos_cmd(int id, int pos, uint8_t* cmd) {
 }
 
 void SimpleVolzOutput::set_id(int old_id, int new_id, uint8_t* cmd) {
-    uint8_t arg_1 = highbyte(new_id);
-    uint8_t arg_2 = lowbyte(new_id);
-    int crc = generate_crc(SET_ID, old_id, arg_1, arg_2);
+    int crc = generate_crc(SET_ID, old_id, new_id, new_id);
 
     cmd[0] = SET_ID;
     cmd[1] = old_id;
-    cmd[2] = arg_1;
-    cmd[3] = arg_2;
+    cmd[2] = new_id;
+    cmd[3] = new_id;
+    cmd[4] = highbyte(crc);
+    cmd[5] = lowbyte(crc);
+}
+
+void SimpleVolzOutput::reset(int id, uint8_t* cmd) {
+    int crc = generate_crc(0xB4, id, 0x41, 0x53);
+
+    cmd[0] = 0xB4;
+    cmd[1] = id;
+    cmd[2] = 0x41;
+    cmd[3] = 0x53;
     cmd[4] = highbyte(crc);
     cmd[5] = lowbyte(crc);
 }
@@ -218,7 +227,6 @@ void SimpleVolzOutput::update_outputs() {
     if (cli_cmd) {
         ::write(_fd, cli_cmd, VOLZ_CMD_LEN);
         _cli_cmd.store(nullptr);  // delete previous command
-        PX4_INFO("%x, %x, %x, %x, %x, %x", cli_cmd[0], cli_cmd[1], cli_cmd[2], cli_cmd[3], cli_cmd[4], cli_cmd[5]);
     }
 
     // if there are no CLI commands, send position commands from flight controller
@@ -234,7 +242,7 @@ void SimpleVolzOutput::update_outputs() {
         // send all actuator commands to the respective servos
         for (int i = 0; i < NUM_SERVOS; i++) {
             uint8_t cmd[VOLZ_CMD_LEN];
-            pos_cmd(i + 1, pos[i], cmd);
+            set_pos(i + 1, pos[i], cmd);
             ::write(_fd, cmd, VOLZ_CMD_LEN);
         }
     }
@@ -297,10 +305,12 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
     if (strcmp(argv[0], "set_id") == 0) {
         uint8_t cmd[VOLZ_CMD_LEN];
         set_id(VOLZ_ID_UNKNOWN, strtol(argv[1], 0, 0), cmd);
-        PX4_INFO("%x, %x, %x, %x, %x, %x", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]);
         get_instance()->send_cmd_threadsafe(cmd);
-    }
-    else {
+    } else if (strcmp(argv[0], "reset") == 0) {
+        uint8_t cmd[VOLZ_CMD_LEN];
+        reset(VOLZ_ID_UNKNOWN, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+    } else {
         return print_usage("unknown command");
     }
     return 0;
@@ -315,14 +325,15 @@ int SimpleVolzOutput::print_usage(const char *reason)
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
 ### Description
-Simple module to send position commands for Volz DA22 servo via the TELEM3 (UART/I2C) port.
+Simple module to send position commands for Volz DA22 actuators via the TELEM3 (UART/I2C) port.
 
 )DESCR_STR");
 
 	PRINT_MODULE_USAGE_NAME("simple_volz_output", "template");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set the the ID of all connected Volz servos");
-	PRINT_MODULE_USAGE_ARG("<new_id>", "Specify the new ID", false);
+	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set a new ID to the connected actuator(s)");
+	PRINT_MODULE_USAGE_ARG("<new_id>", "New actuator ID", false);
+    PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Reset the settings of the actuator to factory default values");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
