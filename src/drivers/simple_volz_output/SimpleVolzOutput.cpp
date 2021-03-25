@@ -61,6 +61,64 @@ bool SimpleVolzOutput::init()
 	return true;
 }
 
+void SimpleVolzOutput::init_fd() {
+    do { // create a scope to handle exit conditions using break
+
+        _fd = ::open(_port, O_RDWR | O_NOCTTY);
+
+        if (_fd < 0) {
+            PX4_ERR("Error opening fd");
+        }
+
+        // baudrate 115200, 8 bits, no parity, 1 stop bit
+        unsigned speed = B115200;
+        termios uart_config{};
+        int termios_state{};
+
+        tcgetattr(_fd, &uart_config);
+
+        // clear ONLCR flag (which appends a CR for every LF)
+        uart_config.c_oflag &= ~ONLCR;
+
+        // set baud rate
+        if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
+            PX4_ERR("CFG: %d ISPD", termios_state);
+            break;
+        }
+
+        if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
+            PX4_ERR("CFG: %d OSPD\n", termios_state);
+            break;
+        }
+
+        if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
+            PX4_ERR("baud %d ATTR", termios_state);
+            break;
+        }
+
+        uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
+        uart_config.c_cflag &= ~CSIZE;
+        uart_config.c_cflag |= CS8;			// 8-bit characters
+        uart_config.c_cflag &= ~PARENB;			// no parity bit
+        uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
+        uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
+
+        // setup for non-canonical mode
+        uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        uart_config.c_oflag &= ~OPOST;
+
+        // fetch bytes as they become available
+        uart_config.c_cc[VMIN] = 1;
+        uart_config.c_cc[VTIME] = 1;
+
+        if (_fd < 0) {
+            PX4_ERR("FAIL: laser fd");
+            break;
+        }
+    } while (0);
+}
+
 void SimpleVolzOutput::Run()
 {
 	if (should_exit()) {
@@ -72,104 +130,13 @@ void SimpleVolzOutput::Run()
 	perf_begin(_loop_perf);
 	perf_count(_loop_interval_perf);
 
-
     // fds initialized?
     if (_fd < 0) {
-        do { // create a scope to handle exit conditions using break
-
-            _fd = ::open(_port, O_RDWR | O_NOCTTY);
-
-            if (_fd < 0) {
-                PX4_ERR("Error opening fd");
-            }
-
-            // baudrate 115200, 8 bits, no parity, 1 stop bit
-            unsigned speed = B115200;
-            termios uart_config{};
-            int termios_state{};
-
-            tcgetattr(_fd, &uart_config);
-
-            // clear ONLCR flag (which appends a CR for every LF)
-            uart_config.c_oflag &= ~ONLCR;
-
-            // set baud rate
-            if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
-                PX4_ERR("CFG: %d ISPD", termios_state);
-                break;
-            }
-
-            if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
-                PX4_ERR("CFG: %d OSPD\n", termios_state);
-                break;
-            }
-
-            if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
-                PX4_ERR("baud %d ATTR", termios_state);
-                break;
-            }
-
-            uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
-            uart_config.c_cflag &= ~CSIZE;
-            uart_config.c_cflag |= CS8;			// 8-bit characters
-            uart_config.c_cflag &= ~PARENB;			// no parity bit
-            uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
-            uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
-
-            // setup for non-canonical mode
-            uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-            uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-            uart_config.c_oflag &= ~OPOST;
-
-            // fetch bytes as they become available
-            uart_config.c_cc[VMIN] = 1;
-            uart_config.c_cc[VTIME] = 1;
-
-            if (_fd < 0) {
-                PX4_ERR("FAIL: laser fd");
-                break;
-            }
-        } while (0);
-
+        init_fd();
     }
 
-    uint8_t* cli_cmd = _cli_cmd.load();
-
-    // if CLI commands are available, send them
-    if (cli_cmd) {
-        ::write(_fd, cli_cmd, VOLZ_CMD_LEN);
-        _cli_cmd.store(nullptr);  // delete previous command
-    }
-
-    // if there are no CLI commands, send position commands from flight controller
-    else {
-        // retrieve actuator controls
-        _actuator_controls_sub.update();
-        const actuator_controls_s &ctrl = _actuator_controls_sub.get();
-
-        // mix the actuator controls
-        int pos[NUM_SERVOS];
-        mix(ctrl.control, pos);
-
-        // send all actuator commands to the respective servos
-        for (int i = 0; i < NUM_SERVOS; i++) {
-            uint8_t cmd[VOLZ_CMD_LEN];
-            pos_cmd(i, pos[i], cmd);
-            ::write(_fd, cmd, VOLZ_CMD_LEN);
-        }
-    }
-
-    int bytes_available = 0;
-    ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
-    if (bytes_available) {
-        char readbuf[VOLZ_CMD_LEN];
-        int ret = ::read(_fd, &readbuf[0], VOLZ_CMD_LEN);
-        if (ret < 0) {
-            PX4_ERR("read error: %d", ret);
-        } else {
-            PX4_INFO("received telemetry");
-        }
-    }
+    update_outputs();
+    update_telemetry();
 
 	perf_end(_loop_perf);
 }
@@ -244,6 +211,57 @@ void SimpleVolzOutput::mix(const float* control, int* pos) {
     pos[5] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
 }
 
+void SimpleVolzOutput::update_outputs() {
+    uint8_t *cli_cmd = _cli_cmd.load();
+
+    // if CLI commands are available, send them
+    if (cli_cmd) {
+        ::write(_fd, cli_cmd, VOLZ_CMD_LEN);
+        _cli_cmd.store(nullptr);  // delete previous command
+        PX4_INFO("%x, %x, %x, %x, %x, %x", cli_cmd[0], cli_cmd[1], cli_cmd[2], cli_cmd[3], cli_cmd[4], cli_cmd[5]);
+    }
+
+    // if there are no CLI commands, send position commands from flight controller
+    else {
+        // retrieve actuator controls
+        _actuator_controls_sub.update();
+        const actuator_controls_s &ctrl = _actuator_controls_sub.get();
+
+        // mix the actuator controls
+        int pos[NUM_SERVOS];
+        mix(ctrl.control, pos);
+
+        // send all actuator commands to the respective servos
+        for (int i = 0; i < NUM_SERVOS; i++) {
+            uint8_t cmd[VOLZ_CMD_LEN];
+            pos_cmd(i + 1, pos[i], cmd);
+            ::write(_fd, cmd, VOLZ_CMD_LEN);
+        }
+    }
+}
+
+void SimpleVolzOutput::update_telemetry() {
+    int bytes_available = 0;
+    ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
+    if (bytes_available) {
+        char readbuf[VOLZ_CMD_LEN];
+        int ret = ::read(_fd, &readbuf[0], VOLZ_CMD_LEN);
+        if (ret < 0) {
+            PX4_ERR("read error: %d", ret);
+        } else {
+            PX4_INFO("received telemetry");
+        }
+    }
+}
+
+void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd) {
+    _cli_cmd.store(cmd);
+
+    while (get_instance()->_cli_cmd.load()) {
+        px4_usleep(1000);
+    }
+}
+
 int SimpleVolzOutput::task_spawn(int argc, char *argv[])
 {
     SimpleVolzOutput *instance = new SimpleVolzOutput();
@@ -279,9 +297,13 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
     if (strcmp(argv[0], "set_id") == 0) {
         uint8_t cmd[VOLZ_CMD_LEN];
         set_id(VOLZ_ID_UNKNOWN, strtol(argv[1], 0, 0), cmd);
-        get_instance()->_cli_cmd.store(cmd);
+        PX4_INFO("%x, %x, %x, %x, %x, %x", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]);
+        get_instance()->send_cmd_threadsafe(cmd);
     }
-	return print_usage("unknown command");
+    else {
+        return print_usage("unknown command");
+    }
+    return 0;
 }
 
 int SimpleVolzOutput::print_usage(const char *reason)

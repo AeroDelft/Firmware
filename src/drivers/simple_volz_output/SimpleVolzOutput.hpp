@@ -73,8 +73,8 @@ public:
     static const int VOLZ_ID_UNKNOWN = 0x1F;
     static const int POS_CMD = 0xDD;
     static const int SET_ID = 0xAA;
-    static const int VOLZ_POS_MIN = 0x04A1;
-    static const int VOLZ_POS_MAX = 0x0B60;
+    static const int VOLZ_POS_MIN = 0x0060;
+    static const int VOLZ_POS_MAX = 0x1F9F;
 
     static const uint16_t DISARMED_VALUE = 0;
     static const uint16_t MIN_VALUE = DISARMED_VALUE + 1;
@@ -92,13 +92,18 @@ private:
 
 	int _fd{-1};
 	const char *_port = "/dev/ttyS3";
+	void init_fd();
 
 	static int highbyte(int value);
 	static int lowbyte(int value);
 	static int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
 	static void pos_cmd(int id, int pos, uint8_t* cmd);
 	static void set_id(int old_id, int new_id, uint8_t* cmd);
+
 	void mix(const float* control, int* pos);
+	void update_outputs();
+	void update_telemetry();
 
     px4::atomic<uint8_t*> _cli_cmd{nullptr};
+    void send_cmd_threadsafe(uint8_t* cmd);
 };
