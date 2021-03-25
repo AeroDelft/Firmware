@@ -159,6 +159,18 @@ void SimpleVolzOutput::Run()
         }
     }
 
+    int bytes_available = 0;
+    ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
+    if (bytes_available) {
+        char readbuf[VOLZ_CMD_LEN];
+        int ret = ::read(_fd, &readbuf[0], VOLZ_CMD_LEN);
+        if (ret < 0) {
+            PX4_ERR("read error: %d", ret);
+        } else {
+            PX4_INFO("received telemetry");
+        }
+    }
+
 	perf_end(_loop_perf);
 }
 

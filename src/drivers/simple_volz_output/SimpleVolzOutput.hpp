@@ -85,7 +85,6 @@ private:
 
 	uORB::Publication<orb_test_s> _orb_test_pub{ORB_ID(orb_test)};
 
-	uORB::SubscriptionData<sensor_accel_s> _sensor_accel_sub{ORB_ID(sensor_accel)};
     uORB::SubscriptionData<actuator_controls_s> _actuator_controls_sub{ORB_ID(actuator_controls_0)};
 
 	perf_counter_t	_loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
