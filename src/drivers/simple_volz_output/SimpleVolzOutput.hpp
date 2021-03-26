@@ -40,6 +40,7 @@
 #include <px4_platform_common/posix.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <px4_platform_common/atomic.h>
+#include <px4_platform_common/getopt.h>
 #include <uORB/topics/orb_test.h>
 #include <uORB/topics/sensor_accel.h>
 #include <uORB/topics/actuator_controls.h>
@@ -47,6 +48,8 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <termios.h>
+
+#include "volz_protocol.h"
 
 class SimpleVolzOutput : public ModuleBase<SimpleVolzOutput>, public ModuleParams, public px4::ScheduledWorkItem
 {
@@ -69,17 +72,6 @@ public:
 
 	static const int NUM_SERVOS = 6;
 
-    static const int VOLZ_CMD_LEN = 6;
-    static const int VOLZ_ID_UNKNOWN = 0x1F;
-    static const int POS_CMD = 0xDC;
-    static const int SET_ID = 0xAA;
-    static const int VOLZ_POS_MIN = 0x0060;
-    static const int VOLZ_POS_MAX = 0x1F9F;
-
-    static const uint16_t DISARMED_VALUE = 0;
-    static const uint16_t MIN_VALUE = DISARMED_VALUE + 1;
-    static const uint16_t MAX_VALUE = MIN_VALUE + 1000;
-
 private:
 	void Run() override;
 
@@ -94,14 +86,7 @@ private:
 	const char *_port = "/dev/ttyS3";
 	void init_fd();
 
-	static int highbyte(int value);
-	static int lowbyte(int value);
-	static int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
-	static void set_pos(int id, int pos, uint8_t* cmd);
-	static void set_id(int old_id, int new_id, uint8_t* cmd);
-	static void reset(int id, uint8_t* cmd);
-
-	void mix(const float* control, int* pos);
+	void mix(const float* control, uint16_t* pos);
 	void update_outputs();
 	void update_telemetry();
 

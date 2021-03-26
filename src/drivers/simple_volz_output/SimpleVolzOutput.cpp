@@ -61,7 +61,8 @@ bool SimpleVolzOutput::init()
 	return true;
 }
 
-void SimpleVolzOutput::init_fd() {
+void SimpleVolzOutput::init_fd()
+{
     do { // create a scope to handle exit conditions using break
 
         _fd = ::open(_port, O_RDWR | O_NOCTTY);
@@ -141,91 +142,32 @@ void SimpleVolzOutput::Run()
 	perf_end(_loop_perf);
 }
 
-int SimpleVolzOutput::highbyte(int value) {
-    return (value >> 8) & 0xff;
-}
+void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
+{
+    uint16_t volz_range = EXTENDED_POS_MAX - EXTENDED_POS_MIN;
 
-int SimpleVolzOutput::lowbyte(int value) {
-    return value & 0xff;
-}
-
-int SimpleVolzOutput::generate_crc(int cmd, int actuator_id, int arg_1, int arg_2)	{
-    unsigned short int crc=0xFFFF; // init value of result
-    int command[4]={cmd,actuator_id,arg_1,arg_2}; // command, ID, argument1, argument 2
-    int x,y;
-
-    for(x=0; x<4; x++)	{
-        crc= ( ( command[x] <<8 ) ^ crc);
-        for ( y=0; y<8; y++ )	{
-            if ( crc & 0x8000 )
-                crc = (crc << 1) ^ 0x8005;
-            else
-                crc = crc << 1;
-        }
-    }
-
-    return crc;
-}
-
-void SimpleVolzOutput::set_pos(int id, int pos, uint8_t* cmd) {
-    // map position to range VOLZ_POS_MIN to VOLZ_POS_MAX
-    int arg = VOLZ_POS_MIN + pos * (VOLZ_POS_MAX - VOLZ_POS_MIN) / (MAX_VALUE - MIN_VALUE);
-    uint8_t arg_1 = highbyte(arg);
-    uint8_t arg_2 = lowbyte(arg);
-    int crc = generate_crc(POS_CMD, id, arg_1, arg_2);
-
-    cmd[0] = POS_CMD;
-    cmd[1] = id;
-    cmd[2] = arg_1;
-    cmd[3] = arg_2;
-    cmd[4] = highbyte(crc);
-    cmd[5] = lowbyte(crc);
-}
-
-void SimpleVolzOutput::set_id(int old_id, int new_id, uint8_t* cmd) {
-    int crc = generate_crc(SET_ID, old_id, new_id, new_id);
-
-    cmd[0] = SET_ID;
-    cmd[1] = old_id;
-    cmd[2] = new_id;
-    cmd[3] = new_id;
-    cmd[4] = highbyte(crc);
-    cmd[5] = lowbyte(crc);
-}
-
-void SimpleVolzOutput::reset(int id, uint8_t* cmd) {
-    int crc = generate_crc(0xB4, id, 0x41, 0x53);
-
-    cmd[0] = 0xB4;
-    cmd[1] = id;
-    cmd[2] = 0x41;
-    cmd[3] = 0x53;
-    cmd[4] = highbyte(crc);
-    cmd[5] = lowbyte(crc);
-}
-
-void SimpleVolzOutput::mix(const float* control, int* pos) {
     // aileron outputs
-    pos[0] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_ROLL] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
-    pos[1] = (int)(MIN_VALUE + (1 - control[actuator_controls_s::INDEX_ROLL]) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_ROLL] + 1) / 2 * volz_range);
+    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (1 - control[actuator_controls_s::INDEX_ROLL]) / 2 * volz_range);
 
     // elevator outputs
-    pos[2] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
-    pos[3] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
+    pos[3] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
 
     // rudder output
-    pos[4] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_YAW] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[4] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_YAW] + 1) / 2 * volz_range);
 
     // wheel brake output
-    pos[5] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[5] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * volz_range);
 }
 
-void SimpleVolzOutput::update_outputs() {
+void SimpleVolzOutput::update_outputs()
+{
     uint8_t *cli_cmd = _cli_cmd.load();
 
     // if CLI commands are available, send them
     if (cli_cmd) {
-        ::write(_fd, cli_cmd, VOLZ_CMD_LEN);
+        ::write(_fd, cli_cmd, DATA_FRAME_SIZE);
         _cli_cmd.store(nullptr);  // delete previous command
     }
 
@@ -236,33 +178,42 @@ void SimpleVolzOutput::update_outputs() {
         const actuator_controls_s &ctrl = _actuator_controls_sub.get();
 
         // mix the actuator controls
-        int pos[NUM_SERVOS];
+        uint16_t pos[NUM_SERVOS];
         mix(ctrl.control, pos);
 
         // send all actuator commands to the respective servos
         for (int i = 0; i < NUM_SERVOS; i++) {
-            uint8_t cmd[VOLZ_CMD_LEN];
-            set_pos(i + 1, pos[i], cmd);
-            ::write(_fd, cmd, VOLZ_CMD_LEN);
+            uint8_t cmd[DATA_FRAME_SIZE];
+            set_extended_pos(i + 1, pos[i], cmd);
+            ::write(_fd, cmd, DATA_FRAME_SIZE);
         }
     }
 }
 
-void SimpleVolzOutput::update_telemetry() {
+void SimpleVolzOutput::update_telemetry()
+{
     int bytes_available = 0;
     ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
-    if (bytes_available) {
-        char readbuf[VOLZ_CMD_LEN];
-        int ret = ::read(_fd, &readbuf[0], VOLZ_CMD_LEN);
+    if (!bytes_available) {
+        return;
+    }
+
+    do {
+        uint8_t readbuf[DATA_FRAME_SIZE];
+        int ret = ::read(_fd, &readbuf[0], DATA_FRAME_SIZE);
         if (ret < 0) {
             PX4_ERR("read error: %d", ret);
-        } else {
-            PX4_INFO("received telemetry");
+            break;
         }
-    }
+
+        PX4_INFO("received telemetry");
+
+
+    } while (bytes_available > 0);
 }
 
-void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd) {
+void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd)
+{
     _cli_cmd.store(cmd);
 
     while (get_instance()->_cli_cmd.load()) {
@@ -302,14 +253,43 @@ int SimpleVolzOutput::print_status()
 
 int SimpleVolzOutput::custom_command(int argc, char *argv[])
 {
-    if (strcmp(argv[0], "set_id") == 0) {
-        uint8_t cmd[VOLZ_CMD_LEN];
-        set_id(VOLZ_ID_UNKNOWN, strtol(argv[1], 0, 0), cmd);
+    const char *verb = argv[0];
+    PX4_INFO("argc: %d", argc);
+
+    if (strcmp(verb, "set_id") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter an ID between %d and %d", ID_MIN, ID_MAX);
+            return print_usage();
+        }
+
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t old_id = ID_BROADCAST;
+        uint8_t new_id = strtol(argv[1], 0, 0);
+
+        PX4_INFO("new id: %d", new_id);
+
+        if (new_id < ID_MIN || ID_MAX < new_id) {
+            PX4_WARN("enter an ID between %d and %d", ID_MIN, ID_MAX);
+            return print_usage();
+        }
+        if (argc >= 3) {
+            old_id = strtol(argv[2], 0, 0);
+        }
+
+        set_id(old_id, new_id, cmd);
         get_instance()->send_cmd_threadsafe(cmd);
-    } else if (strcmp(argv[0], "reset") == 0) {
-        uint8_t cmd[VOLZ_CMD_LEN];
-        reset(VOLZ_ID_UNKNOWN, cmd);
+
+    } else if (strcmp(verb, "reset") == 0) {
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 2) {
+            id = strtol(argv[1], 0, 0);
+        }
+
+        restore_defaults(id, cmd);
         get_instance()->send_cmd_threadsafe(cmd);
+
     } else {
         return print_usage("unknown command");
     }
@@ -325,15 +305,17 @@ int SimpleVolzOutput::print_usage(const char *reason)
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
 ### Description
-Simple module to send position commands for Volz DA22 actuators via the TELEM3 (UART/I2C) port.
+Driver to send position commands for Volz DA22 actuators via the TELEM3 (UART/I2C) port.
 
 )DESCR_STR");
 
 	PRINT_MODULE_USAGE_NAME("simple_volz_output", "template");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set a new ID to the connected actuator(s)");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set a new ID");
 	PRINT_MODULE_USAGE_ARG("<new_id>", "New actuator ID", false);
-    PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Reset the settings of the actuator to factory default values");
+	PRINT_MODULE_USAGE_ARG("<old_id>", "ID of actuator to be set", true);
+    PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Reset settings to factory default values");
+    PRINT_MODULE_USAGE_ARG("<id>", "ID of actuator to be reset", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

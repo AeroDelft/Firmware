@@ -38,6 +38,8 @@ px4_add_module(
 	SRCS
 		SimpleVolzOutput.cpp
 		SimpleVolzOutput.hpp
+		volz_protocol.cpp
+		volz_protocol.h
 	DEPENDS
 		px4_work_queue
 	)
