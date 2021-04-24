@@ -146,9 +146,13 @@ void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
 {
     uint16_t volz_range = EXTENDED_POS_MAX - EXTENDED_POS_MIN;
 
+    float aileron_offset = 18 / 90;
+
     // aileron outputs
-    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_ROLL] + 1) / 2 * volz_range);
-    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (1 - control[actuator_controls_s::INDEX_ROLL]) / 2 * volz_range);
+    float aileron_1_ctrl = apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], aileron_offset);
+    float aileron_2_ctrl = apply_ctrl_offset(-control[actuator_controls_s::INDEX_ROLL], -aileron_offset);
+    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (aileron_1_ctrl + 1) / 2 * volz_range);
+    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (1 + aileron_2_ctrl) / 2 * volz_range);
 
     // elevator outputs
     pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
@@ -159,6 +163,14 @@ void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
 
     // wheel brake output
     pos[5] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * volz_range);
+}
+
+float SimpleVolzOutput::apply_ctrl_offset(float control_val, float center_offset) {
+    if (control_val > 0) {
+        return center_offset + control_val * (1 - center_offset);
+    } else {
+        return center_offset + control_val * (1 + center_offset);
+    }
 }
 
 void SimpleVolzOutput::update_outputs()
@@ -254,7 +266,6 @@ int SimpleVolzOutput::print_status()
 int SimpleVolzOutput::custom_command(int argc, char *argv[])
 {
     const char *verb = argv[0];
-    PX4_INFO("argc: %d", argc);
 
     if (strcmp(verb, "set_id") == 0) {
         if (argc < 2) {
@@ -265,8 +276,6 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
         uint8_t cmd[DATA_FRAME_SIZE];
         uint8_t old_id = ID_BROADCAST;
         uint8_t new_id = strtol(argv[1], 0, 0);
-
-        PX4_INFO("new id: %d", new_id);
 
         if (new_id < ID_MIN || ID_MAX < new_id) {
             PX4_WARN("enter an ID between %d and %d", ID_MIN, ID_MAX);

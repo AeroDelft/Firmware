@@ -87,6 +87,7 @@ private:
 	void init_fd();
 
 	void mix(const float* control, uint16_t* pos);
+	float apply_ctrl_offset(float control_val, float center_offset);
 	void update_outputs();
 	void update_telemetry();
 
