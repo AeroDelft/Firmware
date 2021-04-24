@@ -51,6 +51,7 @@ constexpr float GET_TEMP_OFFSET = -50;
 uint8_t high_byte(uint16_t val);
 uint8_t low_byte(uint16_t val);
 void add_crc(uint8_t* cmd);
+bool valid_crc(uint8_t* resp);
 
 void set_extended_pos(uint8_t id, uint16_t pos, uint8_t* cmd);
 void set_id(uint8_t old_id, uint8_t new_id, uint8_t* cmd);
@@ -61,3 +62,5 @@ void restore_defaults(uint8_t id, uint8_t* cmd);
 void get_amps(uint8_t id, uint8_t* cmd);
 void get_volts(uint8_t id, uint8_t* cmd);
 void get_temp(uint8_t, uint8_t* cmd);
+
+bool valid_resp_set_extended_pos(uint8_t* resp, uint8_t* cmd);

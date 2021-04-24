@@ -31,6 +31,21 @@ void add_crc(uint8_t* cmd)
     cmd[5] = low_byte(crc);
 }
 
+bool valid_crc(uint8_t* resp) {
+    uint8_t resp_high_crc = resp[4];
+    uint8_t resp_low_crc = resp[5];
+
+    // create deep copy
+    uint8_t resp_copy[DATA_FRAME_SIZE];
+    resp_copy[0] = resp[0];
+    resp_copy[1] = resp[1];
+    resp_copy[2] = resp[2];
+    resp_copy[3] = resp[3];
+
+    add_crc(resp_copy);
+    return resp_copy[4] == resp_high_crc && resp_copy[5] == resp_low_crc;
+}
+
 void set_extended_pos(uint8_t id, uint16_t pos, uint8_t* cmd)
 {
     cmd[0] = SET_EXTENDED_POS_CMD_CODE;
@@ -105,4 +120,11 @@ void get_temp(uint8_t, uint8_t* cmd)
 {
 
 }
+
+bool valid_resp_set_extended_pos(uint8_t* resp, uint8_t* cmd) {
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_EXTENDED_POS_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+}
+
+
 

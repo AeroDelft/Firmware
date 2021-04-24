@@ -39,8 +39,10 @@ using namespace time_literals;
 
 SimpleVolzOutput::SimpleVolzOutput() :
 	ModuleParams(nullptr),
-	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::test1)
+	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::rate_ctrl),
+    _volz_outputs_pub{ORB_ID(volz_outputs), ORB_PRIO_HIGH}
 {
+    _volz_outputs_pub.advertise();
 }
 
 SimpleVolzOutput::~SimpleVolzOutput()
@@ -49,6 +51,9 @@ SimpleVolzOutput::~SimpleVolzOutput()
         ::close(_fd);
         _fd = -1;
     }
+
+    _volz_outputs_pub.unadvertise();
+
 	perf_free(_loop_perf);
 	perf_free(_loop_interval_perf);
 }
@@ -56,7 +61,7 @@ SimpleVolzOutput::~SimpleVolzOutput()
 bool SimpleVolzOutput::init()
 {
 
-	ScheduleOnInterval(1000_us); // 1000 us interval, 1000 Hz rate
+	ScheduleOnInterval(max_time_per_servo);
 
 	return true;
 }
@@ -136,8 +141,21 @@ void SimpleVolzOutput::Run()
         init_fd();
     }
 
-    update_outputs();
-    update_telemetry();
+    if (!waiting_for_resp) {
+        update_outputs();
+    } else {
+        update_telemetry();
+    }
+
+    if (waiting_for_resp && hrt_elapsed_time(&last_cmd_time) > max_time_per_servo) {
+        volz_outputs_s &report = _volz_outputs_pub.get();
+        report.timestamp = hrt_absolute_time();
+        report.id = last_cmd[1];
+        report.pos = EXTENDED_POS_MIN - 1;
+        report.valid = false;
+        _volz_outputs_pub.update();
+        waiting_for_resp = false;
+    }
 
 	perf_end(_loop_perf);
 }
@@ -193,11 +211,17 @@ void SimpleVolzOutput::update_outputs()
         uint16_t pos[NUM_SERVOS];
         mix(ctrl.control, pos);
 
-        // send all actuator commands to the respective servos
-        for (int i = 0; i < NUM_SERVOS; i++) {
-            uint8_t cmd[DATA_FRAME_SIZE];
-            set_extended_pos(i + 1, pos[i], cmd);
-            ::write(_fd, cmd, DATA_FRAME_SIZE);
+        // send actuator command to the current servo
+        uint8_t cmd[DATA_FRAME_SIZE];
+        set_extended_pos(current_id, pos[current_id - 1], cmd);
+        ::write(_fd, cmd, DATA_FRAME_SIZE);
+
+        waiting_for_resp = true;
+        last_cmd_time = hrt_absolute_time();
+
+        current_id += 1;
+        if (current_id > NUM_SERVOS) {
+            current_id = 1;
         }
     }
 }
@@ -206,22 +230,28 @@ void SimpleVolzOutput::update_telemetry()
 {
     int bytes_available = 0;
     ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
-    if (!bytes_available) {
+    if (bytes_available < DATA_FRAME_SIZE) {
         return;
     }
 
-    do {
-        uint8_t readbuf[DATA_FRAME_SIZE];
-        int ret = ::read(_fd, &readbuf[0], DATA_FRAME_SIZE);
-        if (ret < 0) {
-            PX4_ERR("read error: %d", ret);
-            break;
-        }
+    waiting_for_resp = false;
 
-        PX4_INFO("received telemetry");
+    uint8_t readbuf[DATA_FRAME_SIZE];
+    int ret = ::read(_fd, &readbuf[0], DATA_FRAME_SIZE);
+    if (ret < 0) {
+        PX4_ERR("read error: %d", ret);
+        return;
+    }
 
+    bool valid = valid_resp_set_extended_pos(readbuf, last_cmd);
+    uint16_t pos = (readbuf[4] >> 8) + readbuf[5];
 
-    } while (bytes_available > 0);
+    volz_outputs_s &report = _volz_outputs_pub.get();
+    report.timestamp = hrt_absolute_time();
+    report.id = last_cmd[1];
+    report.pos = pos;
+    report.valid = valid;
+    _volz_outputs_pub.update();
 }
 
 void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd)

@@ -41,10 +41,10 @@
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <px4_platform_common/atomic.h>
 #include <px4_platform_common/getopt.h>
-#include <uORB/topics/orb_test.h>
 #include <uORB/topics/sensor_accel.h>
 #include <uORB/topics/actuator_controls.h>
-#include <uORB/Publication.hpp>
+#include <uORB/topics/volz_outputs.h>
+#include <uORB/PublicationMulti.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <termios.h>
@@ -71,11 +71,11 @@ public:
 	int print_status() override;
 
 	static const int NUM_SERVOS = 6;
+	static const int UPDATE_FREQ = 300; // Hz
 
 private:
 	void Run() override;
-
-	uORB::Publication<orb_test_s> _orb_test_pub{ORB_ID(orb_test)};
+    uORB::PublicationMultiData<volz_outputs_s> _volz_outputs_pub{ORB_ID(volz_outputs)};
 
     uORB::SubscriptionData<actuator_controls_s> _actuator_controls_sub{ORB_ID(actuator_controls_0)};
 
@@ -90,6 +90,12 @@ private:
 	float apply_ctrl_offset(float control_val, float center_offset);
 	void update_outputs();
 	void update_telemetry();
+
+	int current_id{1};
+    bool waiting_for_resp{false};
+    uint8_t *last_cmd{nullptr};
+    hrt_abstime last_cmd_time{0};
+    uint64_t max_time_per_servo = 1000000/UPDATE_FREQ/NUM_SERVOS;  // microseconds
 
     px4::atomic<uint8_t*> _cli_cmd{nullptr};
     void send_cmd_threadsafe(uint8_t* cmd);
