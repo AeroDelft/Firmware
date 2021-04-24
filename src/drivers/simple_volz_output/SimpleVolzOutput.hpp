@@ -93,7 +93,7 @@ private:
 
 	int current_id{1};
     bool waiting_for_resp{false};
-    uint8_t *last_cmd{nullptr};
+    uint8_t last_cmd[DATA_FRAME_SIZE];
     hrt_abstime last_cmd_time{0};
     uint64_t max_time_per_servo = 1000000/UPDATE_FREQ/NUM_SERVOS;  // microseconds
 

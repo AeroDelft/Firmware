@@ -151,7 +151,7 @@ void SimpleVolzOutput::Run()
         volz_outputs_s &report = _volz_outputs_pub.get();
         report.timestamp = hrt_absolute_time();
         report.id = last_cmd[1];
-        report.pos = EXTENDED_POS_MIN - 1;
+        report.pos = 0;  // this value doesn't really matter
         report.valid = false;
         _volz_outputs_pub.update();
         waiting_for_resp = false;
@@ -217,6 +217,12 @@ void SimpleVolzOutput::update_outputs()
         ::write(_fd, cmd, DATA_FRAME_SIZE);
 
         waiting_for_resp = true;
+        last_cmd[0] = cmd[0];
+        last_cmd[1] = cmd[1];
+        last_cmd[2] = cmd[2];
+        last_cmd[3] = cmd[3];
+        last_cmd[4] = cmd[4];
+        last_cmd[5] = cmd[5];
         last_cmd_time = hrt_absolute_time();
 
         current_id += 1;
@@ -243,7 +249,7 @@ void SimpleVolzOutput::update_telemetry()
         return;
     }
 
-    bool valid = valid_resp_set_extended_pos(readbuf, last_cmd);
+    bool valid = true; // valid_resp_set_extended_pos(readbuf, last_cmd);
     uint16_t pos = (readbuf[4] >> 8) + readbuf[5];
 
     volz_outputs_s &report = _volz_outputs_pub.get();
@@ -327,6 +333,22 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
         }
 
         restore_defaults(id, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "set_failsafe_time") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter a time between %d and %d", FAILSAFE_TIME_MIN, FAILSAFE_TIME_MAX);
+            return print_usage();
+        }
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+        uint8_t time = strtol(argv[1], 0, 0);
+        if (time < FAILSAFE_TIME_MIN || FAILSAFE_TIME_MAX < time) {
+            PX4_WARN("enter a time between %d and %d", FAILSAFE_TIME_MIN, FAILSAFE_TIME_MAX);
+            return print_usage();
+        }
+
+        set_failsafe_time(id, time, cmd);
         get_instance()->send_cmd_threadsafe(cmd);
 
     } else {
