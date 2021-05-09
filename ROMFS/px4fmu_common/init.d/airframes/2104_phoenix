@@ -50,11 +50,5 @@ mcp9808 start -X -b 2 -a 26
 # start the barometer
 mpl3115a2 start -X -b 2
 
-# start the volz driver with the corresponding mixer
-#volz start
-#if mixer load /dev/volz /etc/mixers/AAEERB.main.mix
-#	then
-#		echo "INFO  [init] Mixer: /etc/mixers/AAEERB.main.mix on /dev/volz"
-#	else
-#		echo "ERROR  [init] Failed loading mixer: /etc/mixers/AAEERB.main.mix"
-#fi
+# start the volz driver
+simple_volz_output start
