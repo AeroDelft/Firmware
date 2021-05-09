@@ -151,21 +151,21 @@ void SimpleVolzOutput::Run()
             send_next_ctrl_cmd();
 
         } else {  // if the driver is not armed, handle CLI-related commands
-            if (_checking_connected_servos.load()) {  // if a check for connected servos is being run, proceed
-                uint8_t cmd[DATA_FRAME_SIZE];
-                uint8_t id = current_id.load();
-                set_id(id, id, cmd);  // send command to set ID to itself (does nothing, but initiates response)
-                write_cmd(cmd);
-                current_id.store(id + 1);
-
-            } else {  // check for regular CLI commands
+//            if (_checking_connected_servos.load()) {  // if a check for connected servos is being run, proceed
+//                uint8_t cmd[DATA_FRAME_SIZE];
+//                uint8_t id = current_id.load();
+//                set_id(id, id, cmd);  // send command to set ID to itself (does nothing, but initiates response)
+//                write_cmd(cmd);
+//                current_id.store(id + 1);
+//
+//            } else {  // check for regular CLI commands
                 uint8_t *cli_cmd = _cli_cmd.load();
 
                 if (cli_cmd) { // if CLI commands are available, send them
                     write_cmd(cli_cmd);
                     _cli_cmd.store(nullptr);  // delete the command after sending
                 }
-            }
+//            }
         }
     } else {  // if we are waiting for a response, check if one arrived
         check_for_resp();
@@ -173,36 +173,38 @@ void SimpleVolzOutput::Run()
 
     // if we have been waiting for too long, move on and send an error report
     if (waiting_for_resp && hrt_elapsed_time(&last_cmd_time) > resp_timeout) {
+        waiting_for_resp = false;
+
         if (_armed.load() && last_cmd[0] == SET_EXTENDED_POS_CMD_CODE) {
             if (last_cmd[1] == 1) {
                 _first_timestamp = hrt_absolute_time();
             }
 
             _outputs[last_cmd[1] - 1] = volz_error_s::TIMEOUT;
-
-            if (last_cmd[1] >= NUM_SERVOS) {
-                send_output_msg();
-            }
-        } else if (!_armed.load() && _checking_connected_servos.load() && last_cmd[0] == SET_ID_CMD_CODE) {
-            if (last_cmd[1] == 1) {
-                _first_timestamp = hrt_absolute_time();
-            }
-
-            _connected[last_cmd[1] - 1] = false;
-
-            if (last_cmd[1] >= ID_MAX) {
-                send_connected_msg();
-            }
-        }
-
-        send_timeout_msg();
+//
+//            if (last_cmd[1] >= NUM_SERVOS) {
+//                send_output_msg();
+//            }
+        } // else if (!_armed.load() && _checking_connected_servos.load() && last_cmd[0] == SET_ID_CMD_CODE) {
+//            if (last_cmd[1] == 1) {
+//                _first_timestamp = hrt_absolute_time();
+//            }
+//
+//            _connected[last_cmd[1] - 1] = false;
+//
+//            if (last_cmd[1] >= ID_MAX) {
+//                send_connected_msg();
+//            }
+//        }
+//
+//        send_timeout_msg();
     }
 
     if (_armed.load() && !waiting_for_resp && last_cmd[1] >= NUM_SERVOS) {
         send_output_msg();
-    } else if (!_armed.load() && !waiting_for_resp && last_cmd[1] >= ID_MAX && _checking_connected_servos.load()) {
-        send_connected_msg();
-    }
+    } // else if (!_armed.load() && !waiting_for_resp && last_cmd[1] >= ID_MAX && _checking_connected_servos.load()) {
+//        send_connected_msg();
+//    }
 
 	perf_end(_loop_perf);
 }
@@ -226,7 +228,7 @@ void SimpleVolzOutput::send_timeout_msg() {
 
     _volz_error_pub.update();
 
-    _n_timeout++;
+    // _n_timeout++;
 
     waiting_for_resp = false;
 }
@@ -236,13 +238,13 @@ void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
 {
     uint16_t volz_range = EXTENDED_POS_MAX - EXTENDED_POS_MIN;
 
-    float aileron_offset = 18 / 90;  // TODO: check if this is applied correctly
+    float aileron_offset = 18.0 / 90.0;
 
     // aileron outputs
-    float aileron_1_ctrl = apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], aileron_offset);
-    float aileron_2_ctrl = apply_ctrl_offset(-control[actuator_controls_s::INDEX_ROLL], -aileron_offset);
+    float aileron_1_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], aileron_offset);
+    float aileron_2_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], -aileron_offset);
     pos[0] = (uint16_t)(EXTENDED_POS_MIN + (aileron_1_ctrl + 1) / 2 * volz_range);
-    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (1 + aileron_2_ctrl) / 2 * volz_range);
+    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (aileron_2_ctrl + 1) / 2 * volz_range);
 
     // elevator outputs
     pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
@@ -295,6 +297,11 @@ void SimpleVolzOutput::send_next_ctrl_cmd()
     write_cmd(cmd);
 
     current_id.store(id + 1);
+
+    // TODO: remove this!
+    if (current_id.load() > NUM_SERVOS) {
+        current_id.store(1);
+    }
 }
 
 void SimpleVolzOutput::send_output_msg() {
@@ -310,8 +317,6 @@ void SimpleVolzOutput::send_output_msg() {
     }
 
     _volz_outputs_pub.update();
-
-    current_id.store(1);
 }
 
 void SimpleVolzOutput::send_connected_msg() {
@@ -349,7 +354,7 @@ void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf, uint16_t data) {
 
     _volz_error_pub.update();
 
-    _n_invalid_resp++;
+    // _n_invalid_resp++;
 }
 
 void SimpleVolzOutput::check_for_resp()
@@ -395,43 +400,43 @@ void SimpleVolzOutput::check_for_resp()
 
             break;
 
-        case SET_ID_RESP_CODE:
-            valid = valid_resp_set_id(readbuf, last_cmd);
-            data = readbuf[4];
-
-            if (_checking_connected_servos.load()) {  // if the response corresponds to a check for connection
-                _connected[readbuf[1] - 1] = valid;
-
-                if (readbuf[1] == 1) {  // if this is the first servo in a series
-                    _first_timestamp = hrt_absolute_time();
-                }
-            }
-            break;
-
-        case SET_FAILSAFE_POS_RESP_CODE:
-            valid = valid_resp_set_failsafe_pos(readbuf, last_cmd);
-            data = (readbuf[4] >> 8) + readbuf[5];
-            break;
-
-        case SET_FAILSAFE_TIME_RESP_CODE:
-            valid = valid_resp_set_failsafe_time(readbuf, last_cmd);
-            data = readbuf[4];
-            break;
-
-        case SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE:
-            valid = valid_resp_set_current_pos_as_failsafe(readbuf, last_cmd);
-            data = (readbuf[4] >> 8) + readbuf[5];
-            break;
-
-        case SET_CURRENT_POS_AS_ZERO_RESP_CODE:
-            valid = valid_resp_set_current_pos_as_zero(readbuf, last_cmd);
-            data = (readbuf[4] >> 8) + readbuf[5];
-            break;
-
-        case RESTORE_DEFAULTS_RESP_CODE:
-            valid = valid_resp_restore_defaults(readbuf, last_cmd);
-            data = 1;
-            break;
+//        case SET_ID_RESP_CODE:
+//            valid = valid_resp_set_id(readbuf, last_cmd);
+//            data = readbuf[4];
+//
+//            if (_checking_connected_servos.load()) {  // if the response corresponds to a check for connection
+//                _connected[readbuf[1] - 1] = valid;
+//
+//                if (readbuf[1] == 1) {  // if this is the first servo in a series
+//                    _first_timestamp = hrt_absolute_time();
+//                }
+//            }
+//            break;
+//
+//        case SET_FAILSAFE_POS_RESP_CODE:
+//            valid = valid_resp_set_failsafe_pos(readbuf, last_cmd);
+//            data = (readbuf[4] >> 8) + readbuf[5];
+//            break;
+//
+//        case SET_FAILSAFE_TIME_RESP_CODE:
+//            valid = valid_resp_set_failsafe_time(readbuf, last_cmd);
+//            data = readbuf[4];
+//            break;
+//
+//        case SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE:
+//            valid = valid_resp_set_current_pos_as_failsafe(readbuf, last_cmd);
+//            data = (readbuf[4] >> 8) + readbuf[5];
+//            break;
+//
+//        case SET_CURRENT_POS_AS_ZERO_RESP_CODE:
+//            valid = valid_resp_set_current_pos_as_zero(readbuf, last_cmd);
+//            data = (readbuf[4] >> 8) + readbuf[5];
+//            break;
+//
+//        case RESTORE_DEFAULTS_RESP_CODE:
+//            valid = valid_resp_restore_defaults(readbuf, last_cmd);
+//            data = 1;
+//            break;
     }
 
     if (!valid) {  // send out uORB message if an invalid response was received
@@ -441,7 +446,13 @@ void SimpleVolzOutput::check_for_resp()
 
 void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd)
 {
-    _cli_cmd.store(cmd);
+    if (!_armed.load()) {
+        _cli_cmd.store(cmd);
+
+        while (_cli_cmd.load()) {
+            px4_usleep(1000);
+        }
+    }
 }
 
 void SimpleVolzOutput::arm(bool armed) {
@@ -518,6 +529,18 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
 
         set_extended_pos(id, pos, cmd);
         get_instance()->send_cmd_threadsafe(cmd);
+
+        float control[NUM_SERVOS];
+        control[0] = 0;
+        control[1] = 0;
+        control[2] = 0;
+        control[3] = 0;
+        control[4] = 0;
+        control[5] = 0;
+
+        uint16_t posg[NUM_SERVOS];
+        get_instance()->mix(control, posg);
+        PX4_INFO("sdfgsfuhsdf, %d, %d, %d, %d, %d, %d", posg[0], posg[1], posg[2], posg[3], posg[4], posg[5]);
 
     } else if (strcmp(verb, "set_id") == 0) {
         if (argc < 2) {
@@ -641,7 +664,6 @@ int SimpleVolzOutput::print_usage(const char *reason)
 	if (reason) {
 		PX4_WARN("%s\n", reason);
 	}
-    // TODO: check the description of left vs right aileron given here
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
 ### Description
