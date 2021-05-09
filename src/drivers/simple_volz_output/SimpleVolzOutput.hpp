@@ -74,8 +74,8 @@ public:
 
 	int print_status() override;
 
-	static const uint8_t NUM_SERVOS = 6;
-	static const uint16_t SERVO_UPDATE_FREQ = 200; // Hz
+	static const int NUM_SERVOS = 6;
+	static const int SERVO_UPDATE_FREQ = 300; // Hz
 
 private:
 	void Run() override;
