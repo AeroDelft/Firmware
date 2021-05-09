@@ -164,6 +164,8 @@ set(msg_files
 	vehicle_status_flags.msg
 	vehicle_trajectory_bezier.msg
 	vehicle_trajectory_waypoint.msg
+	volz_connected.msg
+	volz_error.msg
 	volz_outputs.msg
 	vtol_vehicle_status.msg
 	wheel_encoders.msg

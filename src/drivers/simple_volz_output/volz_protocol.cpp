@@ -86,12 +86,22 @@ void set_failsafe_time(uint8_t id, uint8_t time, uint8_t* cmd)
     add_crc(cmd);
 }
 
-void set_zero_pos(uint8_t id, uint8_t* cmd)
+void set_current_pos_as_failsafe(uint8_t id, uint8_t* cmd)
 {
-    cmd[0] = SET_ZERO_POS_CMD_CODE;
+    cmd[0] = SET_CURRENT_POS_AS_FAILSAFE_CMD_CODE;
     cmd[1] = id;
-    cmd[2] = SET_ZERO_POS_CMD_ARGS;
-    cmd[3] = SET_ZERO_POS_CMD_ARGS;
+    cmd[2] = SET_CURRENT_POS_AS_FAILSAFE_CMD_ARGS;
+    cmd[3] = SET_CURRENT_POS_AS_FAILSAFE_CMD_ARGS;
+
+    add_crc(cmd);
+}
+
+void set_current_pos_as_zero(uint8_t id, uint8_t* cmd)
+{
+    cmd[0] = SET_CURRENT_POS_AS_ZERO_CMD_CODE;
+    cmd[1] = id;
+    cmd[2] = SET_CURRENT_POS_AS_ZERO_CMD_ARGS;
+    cmd[3] = SET_CURRENT_POS_AS_ZERO_CMD_ARGS;
 
     add_crc(cmd);
 }
@@ -106,25 +116,43 @@ void restore_defaults(uint8_t id, uint8_t* cmd)
     add_crc(cmd);
 }
 
-void get_amps(uint8_t id, uint8_t* cmd)
-{
-
-}
-
-void get_volts(uint8_t id, uint8_t* cmd)
-{
-
-}
-
-void get_temp(uint8_t, uint8_t* cmd)
-{
-
-}
-
 bool valid_resp_set_extended_pos(uint8_t* resp, uint8_t* cmd) {
     bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
     return resp[0] == SET_EXTENDED_POS_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
 }
 
+bool valid_resp_set_id(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_ID_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+}
 
+bool valid_resp_set_failsafe_pos(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_FAILSAFE_POS_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+}
 
+bool valid_resp_set_failsafe_time(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_FAILSAFE_TIME_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+}
+
+bool valid_resp_set_current_pos_as_failsafe(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE && id_valid && valid_crc(resp);
+}
+
+bool valid_resp_set_current_pos_as_zero(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == SET_CURRENT_POS_AS_ZERO_RESP_CODE && id_valid && valid_crc(resp);
+}
+
+bool valid_resp_restore_defaults(uint8_t* resp, uint8_t* cmd)
+{
+    bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
+    return resp[0] == RESTORE_DEFAULTS_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+}

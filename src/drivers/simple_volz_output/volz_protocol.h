@@ -23,9 +23,13 @@ constexpr uint8_t FAILSAFE_TIME_MIN = 0x01;
 constexpr uint8_t FAILSAFE_TIME_MAX = 0x7F;
 constexpr float FAILSAFE_TIME_FACTOR = 0.1;  // converts value to s
 
-constexpr uint8_t SET_ZERO_POS_CMD_CODE = 0x99;
-constexpr uint8_t SET_ZERO_POS_CMD_ARGS = 0x00;
-constexpr uint8_t SET_ZERO_POS_RESP_CODE = 0x4C;
+constexpr uint8_t SET_CURRENT_POS_AS_FAILSAFE_CMD_CODE = 0xBC;
+constexpr uint8_t SET_CURRENT_POS_AS_FAILSAFE_CMD_ARGS = 0x00;
+constexpr uint8_t SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE = 0x5C;
+
+constexpr uint8_t SET_CURRENT_POS_AS_ZERO_CMD_CODE = 0x99;
+constexpr uint8_t SET_CURRENT_POS_AS_ZERO_CMD_ARGS = 0x00;
+constexpr uint8_t SET_CURRENT_POS_AS_ZERO_RESP_CODE = 0x4C;
 
 constexpr uint8_t RESTORE_DEFAULTS_CMD_CODE = 0xB4;
 constexpr uint8_t RESTORE_DEFAULTS_RESP_CODE = 0x5A;
@@ -57,10 +61,15 @@ void set_extended_pos(uint8_t id, uint16_t pos, uint8_t* cmd);
 void set_id(uint8_t old_id, uint8_t new_id, uint8_t* cmd);
 void set_failsafe_pos(uint8_t id, uint16_t pos, uint8_t* cmd);
 void set_failsafe_time(uint8_t id, uint8_t time, uint8_t* cmd);
-void set_zero_pos(uint8_t id, uint8_t* cmd);
+void set_current_pos_as_failsafe(uint8_t id, uint8_t* cmd);
+void set_current_pos_as_zero(uint8_t id, uint8_t* cmd);
 void restore_defaults(uint8_t id, uint8_t* cmd);
-void get_amps(uint8_t id, uint8_t* cmd);
-void get_volts(uint8_t id, uint8_t* cmd);
-void get_temp(uint8_t, uint8_t* cmd);
 
 bool valid_resp_set_extended_pos(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_set_id(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_set_failsafe_pos(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_set_failsafe_time(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_set_current_pos_as_failsafe(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_set_current_pos_as_zero(uint8_t* resp, uint8_t* cmd);
+bool valid_resp_restore_defaults(uint8_t* resp, uint8_t* cmd);
+
