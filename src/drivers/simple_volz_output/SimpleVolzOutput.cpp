@@ -228,7 +228,7 @@ void SimpleVolzOutput::send_timeout_msg() {
 
     _volz_error_pub.update();
 
-    // _n_timeout++;
+    _n_timeout.store(_n_timeout.load() + 1);
 
     waiting_for_resp = false;
 }
@@ -354,7 +354,7 @@ void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf, uint16_t data) {
 
     _volz_error_pub.update();
 
-    // _n_invalid_resp++;
+    _n_invalid_resp.store(_n_invalid_resp.load() + 1);
 }
 
 void SimpleVolzOutput::check_for_resp()
@@ -441,6 +441,8 @@ void SimpleVolzOutput::check_for_resp()
 
     if (!valid) {  // send out uORB message if an invalid response was received
         send_invalid_resp_msg(readbuf, data);
+    } else {
+        _n_valid_resp.store(_n_valid_resp.load() + 1);
     }
 }
 
@@ -500,7 +502,9 @@ int SimpleVolzOutput::print_status()
 {
 	perf_print_counter(_loop_perf);
 	perf_print_counter(_loop_interval_perf);
-	// TODO: maybe print the number of errors
+	PX4_INFO("timeouts: %d", get_instance()->_n_timeout.load());
+    PX4_INFO("invalid responses: %d", get_instance()->_n_invalid_resp.load());
+    PX4_INFO("valid responses: %d", get_instance()->_n_valid_resp.load());
 	return 0;
 }
 
@@ -530,17 +534,17 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
         set_extended_pos(id, pos, cmd);
         get_instance()->send_cmd_threadsafe(cmd);
 
-        float control[NUM_SERVOS];
-        control[0] = 0;
-        control[1] = 0;
-        control[2] = 0;
-        control[3] = 0;
-        control[4] = 0;
-        control[5] = 0;
-
-        uint16_t posg[NUM_SERVOS];
-        get_instance()->mix(control, posg);
-        PX4_INFO("sdfgsfuhsdf, %d, %d, %d, %d, %d, %d", posg[0], posg[1], posg[2], posg[3], posg[4], posg[5]);
+//        float control[NUM_SERVOS];
+//        control[0] = 0;
+//        control[1] = 0;
+//        control[2] = 0;
+//        control[3] = 0;
+//        control[4] = 0;
+//        control[5] = 0;
+//
+//        uint16_t posg[NUM_SERVOS];
+//        get_instance()->mix(control, posg);
+//        PX4_INFO("sdfgsfuhsdf, %d, %d, %d, %d, %d, %d", posg[0], posg[1], posg[2], posg[3], posg[4], posg[5]);
 
     } else if (strcmp(verb, "set_id") == 0) {
         if (argc < 2) {

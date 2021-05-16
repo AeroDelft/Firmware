@@ -75,7 +75,7 @@ public:
 	int print_status() override;
 
 	static const int NUM_SERVOS = 6;
-	static const int SERVO_UPDATE_FREQ = 300; // Hz
+	static const int SERVO_UPDATE_FREQ = 50; // Hz
 
 private:
 	void Run() override;
@@ -118,8 +118,10 @@ private:
     void check_connected_servos();
     void send_connected_msg();
 
-    uint64_t _n_invalid_resp{0};
-    uint64_t _n_timeout{0};
+    // TODO: double-check if we are at risk of an overflow error here
+    px4::atomic<uint32_t> _n_valid_resp{0};
+    px4::atomic<uint32_t> _n_invalid_resp{0};
+    px4::atomic<uint32_t> _n_timeout{0};
 
     uint64_t _first_timestamp{0};
     uint16_t _outputs[NUM_SERVOS];
