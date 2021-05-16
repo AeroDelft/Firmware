@@ -51,4 +51,4 @@ mcp9808 start -X -b 2 -a 26
 mpl3115a2 start -X -b 2
 
 # start the volz driver
-simple_volz_output start
+# simple_volz_output start  # for some reason, this seems to crash the driver later
