@@ -76,6 +76,7 @@ public:
 
 	static const int NUM_SERVOS = 6;
 	static const int SERVO_UPDATE_FREQ = 50; // Hz
+	static const int TIMEOUT_FACTOR = 3;
 
 private:
 	void Run() override;
@@ -105,7 +106,7 @@ private:
     hrt_abstime last_cmd_time{0};
 
     uint64_t loop_interval = 1000000/SERVO_UPDATE_FREQ/NUM_SERVOS;  // microseconds
-    uint64_t resp_timeout = loop_interval * 2;  // microseconds
+    uint64_t resp_timeout = loop_interval * TIMEOUT_FACTOR;  // microseconds
 
     px4::atomic<uint8_t*> _cli_cmd{nullptr};
     void send_cmd_threadsafe(uint8_t* cmd);
@@ -128,5 +129,5 @@ private:
     void send_output_msg();
 
     void send_timeout_msg();
-    void send_invalid_resp_msg(uint8_t *readbuf, uint16_t data);
+    void send_invalid_resp_msg(uint8_t *readbuf);
 };

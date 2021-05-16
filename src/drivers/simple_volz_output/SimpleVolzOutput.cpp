@@ -224,7 +224,6 @@ void SimpleVolzOutput::send_timeout_msg() {
     report.resp_id = 0;
     report.resp_arg1 = 0;
     report.resp_arg2 = 0;
-    report.resp_data = 0;
 
     _volz_error_pub.update();
 
@@ -335,7 +334,7 @@ void SimpleVolzOutput::send_connected_msg() {
     current_id.store(1);
 }
 
-void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf, uint16_t data) {
+void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf) {
     volz_error_s &report = _volz_error_pub.get();
 
     report.timestamp = hrt_absolute_time();
@@ -350,7 +349,6 @@ void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf, uint16_t data) {
     report.resp_id = readbuf[1];
     report.resp_arg1 = readbuf[2];
     report.resp_arg2 = readbuf[3];
-    report.resp_data = data;
 
     _volz_error_pub.update();
 
@@ -378,12 +376,11 @@ void SimpleVolzOutput::check_for_resp()
 
     // analyse the response
     bool valid = false;
-    uint16_t data = 0;
 
     switch (readbuf[0]) {
         case SET_EXTENDED_POS_RESP_CODE:
             valid = valid_resp_set_extended_pos(readbuf, last_cmd);
-            data = (readbuf[2] >> 8) + readbuf[3];
+            uint16_t data = (readbuf[2] >> 8) + readbuf[3];
 
             // if this is a valid response and we are in armed mode, store the output for publication
             if (_armed.load()) {
@@ -402,7 +399,6 @@ void SimpleVolzOutput::check_for_resp()
 
 //        case SET_ID_RESP_CODE:
 //            valid = valid_resp_set_id(readbuf, last_cmd);
-//            data = readbuf[4];
 //
 //            if (_checking_connected_servos.load()) {  // if the response corresponds to a check for connection
 //                _connected[readbuf[1] - 1] = valid;
@@ -415,32 +411,27 @@ void SimpleVolzOutput::check_for_resp()
 //
 //        case SET_FAILSAFE_POS_RESP_CODE:
 //            valid = valid_resp_set_failsafe_pos(readbuf, last_cmd);
-//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case SET_FAILSAFE_TIME_RESP_CODE:
 //            valid = valid_resp_set_failsafe_time(readbuf, last_cmd);
-//            data = readbuf[2];
 //            break;
 //
 //        case SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE:
 //            valid = valid_resp_set_current_pos_as_failsafe(readbuf, last_cmd);
-//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case SET_CURRENT_POS_AS_ZERO_RESP_CODE:
 //            valid = valid_resp_set_current_pos_as_zero(readbuf, last_cmd);
-//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case RESTORE_DEFAULTS_RESP_CODE:
 //            valid = valid_resp_restore_defaults(readbuf, last_cmd);
-//            data = 1;
 //            break;
     }
 
     if (!valid) {  // send out uORB message if an invalid response was received
-        send_invalid_resp_msg(readbuf, data);
+        send_invalid_resp_msg(readbuf);
     } else {
         _n_valid_resp.store(_n_valid_resp.load() + 1);
     }
