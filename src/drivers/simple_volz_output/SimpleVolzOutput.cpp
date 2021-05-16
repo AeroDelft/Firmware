@@ -197,7 +197,7 @@ void SimpleVolzOutput::Run()
 //            }
 //        }
 //
-//        send_timeout_msg();
+        send_timeout_msg();
     }
 
     if (_armed.load() && !waiting_for_resp && last_cmd[1] >= NUM_SERVOS) {
@@ -383,7 +383,7 @@ void SimpleVolzOutput::check_for_resp()
     switch (readbuf[0]) {
         case SET_EXTENDED_POS_RESP_CODE:
             valid = valid_resp_set_extended_pos(readbuf, last_cmd);
-            data = (readbuf[4] >> 8) + readbuf[5];
+            data = (readbuf[2] >> 8) + readbuf[3];
 
             // if this is a valid response and we are in armed mode, store the output for publication
             if (_armed.load()) {
@@ -415,22 +415,22 @@ void SimpleVolzOutput::check_for_resp()
 //
 //        case SET_FAILSAFE_POS_RESP_CODE:
 //            valid = valid_resp_set_failsafe_pos(readbuf, last_cmd);
-//            data = (readbuf[4] >> 8) + readbuf[5];
+//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case SET_FAILSAFE_TIME_RESP_CODE:
 //            valid = valid_resp_set_failsafe_time(readbuf, last_cmd);
-//            data = readbuf[4];
+//            data = readbuf[2];
 //            break;
 //
 //        case SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE:
 //            valid = valid_resp_set_current_pos_as_failsafe(readbuf, last_cmd);
-//            data = (readbuf[4] >> 8) + readbuf[5];
+//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case SET_CURRENT_POS_AS_ZERO_RESP_CODE:
 //            valid = valid_resp_set_current_pos_as_zero(readbuf, last_cmd);
-//            data = (readbuf[4] >> 8) + readbuf[5];
+//            data = (readbuf[2] >> 8) + readbuf[3];
 //            break;
 //
 //        case RESTORE_DEFAULTS_RESP_CODE:

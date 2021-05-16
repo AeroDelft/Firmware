@@ -6,6 +6,7 @@ constexpr uint8_t SET_EXTENDED_POS_CMD_CODE = 0xDC;
 constexpr uint8_t SET_EXTENDED_POS_RESP_CODE = 0x2C;
 constexpr uint16_t EXTENDED_POS_MIN = 0x0060;
 constexpr uint16_t EXTENDED_POS_MAX = 0x1F9F;
+constexpr uint16_t EXTENDED_POS_RESP_TOL = 160;  // position tolerance when checking for response validity
 
 constexpr uint8_t SET_ID_CMD_CODE = 0xAA;
 constexpr uint8_t SET_ID_RESP_CODE = 0x55;

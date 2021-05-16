@@ -118,7 +118,18 @@ void restore_defaults(uint8_t id, uint8_t* cmd)
 
 bool valid_resp_set_extended_pos(uint8_t* resp, uint8_t* cmd) {
     bool id_valid = resp[1] == cmd[1] || cmd[1] == ID_BROADCAST;
-    return resp[0] == SET_EXTENDED_POS_RESP_CODE && id_valid && resp[2] == cmd[2] && resp[3] == cmd[3] && valid_crc(resp);
+
+    uint16_t cmd_pos = (cmd[2] >> 8) + cmd[3];
+    uint16_t resp_pos = (resp[2] >> 8) + resp[3];
+
+    bool pos_valid;
+    if (cmd_pos > resp_pos) {
+        pos_valid = cmd_pos - resp_pos < EXTENDED_POS_RESP_TOL;
+    } else {
+        pos_valid = resp_pos - cmd_pos < EXTENDED_POS_RESP_TOL;
+    }
+
+    return resp[0] == SET_EXTENDED_POS_RESP_CODE && id_valid && pos_valid && valid_crc(resp);
 }
 
 bool valid_resp_set_id(uint8_t* resp, uint8_t* cmd)
