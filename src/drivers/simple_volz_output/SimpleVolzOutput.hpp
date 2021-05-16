@@ -45,6 +45,7 @@
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/volz_connected.h>
 #include <uORB/topics/volz_error.h>
+#include <uORB/topics/volz_last_resp.h>
 #include <uORB/topics/volz_outputs.h>
 #include <uORB/PublicationMulti.hpp>
 #include <uORB/Subscription.hpp>
@@ -83,6 +84,7 @@ private:
 
     uORB::PublicationMultiData<volz_connected_s> _volz_connected_pub{ORB_ID(volz_connected)};
     uORB::PublicationMultiData<volz_error_s> _volz_error_pub{ORB_ID(volz_error)};
+    uORB::PublicationMultiData<volz_last_resp_s> _volz_last_resp_pub{ORB_ID(volz_last_resp)};
     uORB::PublicationMultiData<volz_outputs_s> _volz_outputs_pub{ORB_ID(volz_outputs)};
 
     uORB::SubscriptionData<actuator_controls_s> _actuator_controls_sub{ORB_ID(actuator_controls_0)};
@@ -130,4 +132,7 @@ private:
 
     void send_timeout_msg();
     void send_invalid_resp_msg(uint8_t *readbuf);
+
+    uint64_t _last_valid_resp_time[ID_MAX];
+    void send_last_valid_resp_msg();
 };

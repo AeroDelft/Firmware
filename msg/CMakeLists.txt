@@ -166,6 +166,7 @@ set(msg_files
 	vehicle_trajectory_waypoint.msg
 	volz_connected.msg
 	volz_error.msg
+	volz_last_resp.msg
 	volz_outputs.msg
 	vtol_vehicle_status.msg
 	wheel_encoders.msg

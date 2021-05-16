@@ -42,22 +42,25 @@ SimpleVolzOutput::SimpleVolzOutput() :
 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::rate_ctrl),
     _volz_connected_pub{ORB_ID(volz_connected), ORB_PRIO_HIGH},
     _volz_error_pub{ORB_ID(volz_error), ORB_PRIO_HIGH},
+    _volz_last_resp_pub{ORB_ID(volz_last_resp), ORB_PRIO_HIGH},
     _volz_outputs_pub{ORB_ID(volz_outputs), ORB_PRIO_HIGH}
 {
     _volz_connected_pub.advertise();
     _volz_error_pub.advertise();
+    _volz_last_resp_pub.advertise();
     _volz_outputs_pub.advertise();
+
+    for (int i = 0; i < ID_MAX; i++) {
+        _last_valid_resp_time[i] = 0;
+        _connected[i] = false;
+    }
 }
 
 SimpleVolzOutput::~SimpleVolzOutput()
 {
-    if (_fd != -1) {
-        ::close(_fd);
-        _fd = -1;
-    }
-
     _volz_connected_pub.unadvertise();
     _volz_error_pub.unadvertise();
+    _volz_last_resp_pub.unadvertise();
     _volz_outputs_pub.unadvertise();
 
 	perf_free(_loop_perf);
@@ -133,6 +136,11 @@ void SimpleVolzOutput::init_fd()
 void SimpleVolzOutput::Run()
 {
 	if (should_exit()) {
+        if (_fd != -1) {
+            ::close(_fd);
+            _fd = -1;
+        }
+
 		ScheduleClear();
 		exit_and_cleanup();
 		return;
@@ -207,6 +215,21 @@ void SimpleVolzOutput::Run()
 //    }
 
 	perf_end(_loop_perf);
+}
+
+void SimpleVolzOutput::send_last_valid_resp_msg() {
+    volz_last_resp_s &report = _volz_last_resp_pub.get();
+    report.timestamp = hrt_absolute_time();
+
+    for (int i = 0; i < ID_MAX; i++) {
+        if (_last_valid_resp_time[i] > 0) {
+            report.t_since_valid_resp[i] = ((float)hrt_elapsed_time(&_last_valid_resp_time[i])) / 1000000;
+        } else {
+            report.t_since_valid_resp[i] = -1;
+        }
+    }
+
+    _volz_last_resp_pub.update();
 }
 
 void SimpleVolzOutput::send_timeout_msg() {
@@ -433,6 +456,8 @@ void SimpleVolzOutput::check_for_resp()
     if (!valid) {  // send out uORB message if an invalid response was received
         send_invalid_resp_msg(readbuf);
     } else {
+        _last_valid_resp_time[readbuf[1] - 1] = hrt_absolute_time();
+        send_last_valid_resp_msg();
         _n_valid_resp.store(_n_valid_resp.load() + 1);
     }
 }
