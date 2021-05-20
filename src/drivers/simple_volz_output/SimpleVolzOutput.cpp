@@ -35,6 +35,10 @@
 
 #include <drivers/drv_hrt.h>
 
+// TODO: fix uORB! The volz_outputs thing does not update the values and they are very low (around 255 max. Maybe using an 8 bit integer instead of 16?)
+// TODO: also, the volz_last_resp topic goes offline at random times for up to a minute or so
+// TODO: the response recognition is very bad
+
 using namespace time_literals;
 
 SimpleVolzOutput::SimpleVolzOutput() :
@@ -266,12 +270,12 @@ void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
     // aileron outputs
     float aileron_1_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], aileron_offset);
     float aileron_2_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], -aileron_offset);
-    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (aileron_1_ctrl + 1) / 2 * volz_range);
-    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (aileron_2_ctrl + 1) / 2 * volz_range);
+    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (aileron_1_ctrl + 1) / 2 * volz_range);  // port aileron
+    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (aileron_2_ctrl + 1) / 2 * volz_range);  // starboard aileron
 
     // elevator outputs
-    pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
-    pos[3] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);
+    pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);  // starboard elevator
+    pos[3] = (uint16_t)(EXTENDED_POS_MIN + (-control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);  // port elevator
 
     // rudder output
     pos[4] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_YAW] + 1) / 2 * volz_range);
@@ -613,7 +617,7 @@ int SimpleVolzOutput::custom_command(int argc, char *argv[])
             return print_usage();
         }
         uint8_t time = strtol(argv[1], 0, 0);
-        if (time < FAILSAFE_TIME_MIN || FAILSAFE_TIME_MAX < time) {
+        if (time < FAILSAFE_TIME_MIN || FAILSAFE_TIME_MAX < time) {  // TODO: allow for deactivation
             PX4_WARN("enter a time between %d and %d", FAILSAFE_TIME_MIN, FAILSAFE_TIME_MAX);
             return print_usage();
         }
