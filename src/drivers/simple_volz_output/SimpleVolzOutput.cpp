@@ -217,6 +217,7 @@ void SimpleVolzOutput::Run()
 	perf_end(_loop_perf);
 }
 
+// TODO: maybe this can replace the connected stuff
 void SimpleVolzOutput::send_last_valid_resp_msg() {
     volz_last_resp_s &report = _volz_last_resp_pub.get();
     report.timestamp = hrt_absolute_time();
@@ -326,11 +327,12 @@ void SimpleVolzOutput::send_next_ctrl_cmd()
     }
 }
 
+// TODO: the values in the output vector don't seem quite right (never reach high values)
 void SimpleVolzOutput::send_output_msg() {
     volz_outputs_s &report = _volz_outputs_pub.get();
 
     report.first_timestamp = _first_timestamp;
-    report.timestamp = hrt_absolute_time();  // TODO: maybe this timestamp should be set when the response is received
+    report.timestamp = hrt_absolute_time();
 
     report.n_outputs = NUM_SERVOS;
 
@@ -345,7 +347,7 @@ void SimpleVolzOutput::send_connected_msg() {
     volz_connected_s &report = _volz_connected_pub.get();
 
     report.first_timestamp = _first_timestamp;
-    report.timestamp = hrt_absolute_time();  // TODO: maybe this timestamp should be set when the response is received
+    report.timestamp = hrt_absolute_time();
 
     for (int i = 0; i < ID_MAX; i++) {
         report.connected[i] = _connected[i];
@@ -518,6 +520,7 @@ int SimpleVolzOutput::print_status()
 {
 	perf_print_counter(_loop_perf);
 	perf_print_counter(_loop_interval_perf);
+	PX4_INFO("armed: %d", get_instance()->_armed.load());
 	PX4_INFO("timeouts: %d", get_instance()->_n_timeout.load());
     PX4_INFO("invalid responses: %d", get_instance()->_n_invalid_resp.load());
     PX4_INFO("valid responses: %d", get_instance()->_n_valid_resp.load());
