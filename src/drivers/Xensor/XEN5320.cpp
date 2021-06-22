@@ -104,7 +104,7 @@ private:
 XEN5320::XEN5320(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address) :
         I2C(DRV_TEMP_DEVTYPE_MCP9808, MODULE_NAME, bus, address, bus_frequency),
         I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus, address),
-        _sensor_hydrogen_pub{ORB_ID(sensor_hydrogen), ORB_PRIO_DEFAULT}, // snap niet helemaal wat hier gebeurt. is dit nog constructor definition?
+        _sensor_hydrogen_pub{ORB_ID(sensor_hydrogen), ORB_PRIO_DEFAULT}, // snap niet helemaal wat hier gebeurt. is dit onderdeel v constructor definition?
         _sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": read")),
         _measure_perf(perf_alloc(PC_ELAPSED, MO1DULE_NAME": measure")),
         _comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": com_err"))
@@ -148,10 +148,10 @@ int XEN5320::probe()
     uint8_t val[2] {};
 
     // Read the device ID of the connected sensor, and make sure it matches with the MCP9808
-    uint8_t reg = MCP9808_REG_DEV_ID;
+    uint8_t reg = MCP9808_REG_DEV_ID; // CHANGE!
     int ret = transfer(&reg, 1, &val[0], 2);
 
-    if ((ret == PX4_OK) && (val[0] == MCP9808_DEV_ID)) {
+    if ((ret == PX4_OK) && (val[0] == MCP9808_DEV_ID)) { // CHANGE!
         /*
          * Disable retries; we may enable them selectively in some cases,
          * but the device gets confused if we retry some of the commands.
@@ -223,7 +223,7 @@ int XEN5320::measure()
     // Select the temperature register so subsequent read commands do not
     // have to specify it
     uint8_t val[2] = {0, 0};
-    uint8_t reg = MCP9808_REG_AMB_TEMP; // change!
+    uint8_t reg = MCP9808_REG_AMB_TEMP; // CHANGE!
     int ret = transfer(&reg, 1, &val[0], 2);
 
     if (ret == -EIO) {
@@ -356,7 +356,7 @@ extern "C" int xen5320_main(int argc, char *argv[])
         return -1;
     }
 
-    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_BARO_DEVTYPE_MPL3115A2);
+    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_BARO_DEVTYPE_MPL3115A2); //CHANGE!
 
     if (!strcmp(verb, "start")) {
         return ThisDriver::module_start(cli, iterator);
