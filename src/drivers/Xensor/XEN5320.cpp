@@ -59,7 +59,7 @@
 
 #define MCP9808_REG_AMB_TEMP       0x05 // Why 4 addresses?
 #define MCP9808_REG_DEV_ID         0x07 //
-#define MCP9808_DEV_ID             0x04 //
+#define MCP9808_DEV_ID             0x04 ///
 
 #define TEMP_BASE_DEVICE_PATH      "/dev/temp" //
 
