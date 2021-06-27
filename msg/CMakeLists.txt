@@ -118,6 +118,7 @@ set(msg_files
 	sensor_correction.msg
 	sensor_gyro.msg
 	sensor_gyro_fifo.msg
+	sensor_hydrogen.msg
 	sensor_mag.msg
 	sensor_preflight.msg
 	sensor_selection.msg
