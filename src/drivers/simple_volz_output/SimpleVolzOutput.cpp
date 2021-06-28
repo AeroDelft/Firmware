@@ -35,35 +35,116 @@
 
 #include <drivers/drv_hrt.h>
 
+// TODO: fix uORB! The volz_outputs thing does not update the values and they are very low (around 255 max. Maybe using an 8 bit integer instead of 16?)
+// TODO: also, the volz_last_resp topic goes offline at random times for up to a minute or so
+// TODO: the response recognition is very bad
+
 using namespace time_literals;
 
 SimpleVolzOutput::SimpleVolzOutput() :
 	ModuleParams(nullptr),
-	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::test1)
+	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::rate_ctrl),
+    _volz_connected_pub{ORB_ID(volz_connected), ORB_PRIO_HIGH},
+    _volz_error_pub{ORB_ID(volz_error), ORB_PRIO_HIGH},
+    _volz_last_resp_pub{ORB_ID(volz_last_resp), ORB_PRIO_HIGH},
+    _volz_outputs_pub{ORB_ID(volz_outputs), ORB_PRIO_HIGH}
 {
+    _volz_connected_pub.advertise();
+    _volz_error_pub.advertise();
+    _volz_last_resp_pub.advertise();
+    _volz_outputs_pub.advertise();
+
+    for (int i = 0; i < ID_MAX; i++) {
+        _last_valid_resp_time[i] = 0;
+        _connected[i] = false;
+    }
 }
 
 SimpleVolzOutput::~SimpleVolzOutput()
 {
-    if (_fd != -1) {
-        ::close(_fd);
-        _fd = -1;
-    }
+    _volz_connected_pub.unadvertise();
+    _volz_error_pub.unadvertise();
+    _volz_last_resp_pub.unadvertise();
+    _volz_outputs_pub.unadvertise();
+
 	perf_free(_loop_perf);
 	perf_free(_loop_interval_perf);
 }
 
 bool SimpleVolzOutput::init()
 {
-
-	ScheduleOnInterval(1000_us); // 1000 us interval, 1000 Hz rate
+	ScheduleOnInterval(loop_interval);
 
 	return true;
+}
+
+void SimpleVolzOutput::init_fd()
+{
+    do { // create a scope to handle exit conditions using break
+
+        _fd = ::open(_port, O_RDWR | O_NOCTTY);
+
+        if (_fd < 0) {
+            PX4_ERR("Error opening fd");
+        }
+
+        // baudrate 115200, 8 bits, no parity, 1 stop bit
+        unsigned speed = B115200;
+        termios uart_config{};
+        int termios_state{};
+
+        tcgetattr(_fd, &uart_config);
+
+        // clear ONLCR flag (which appends a CR for every LF)
+        uart_config.c_oflag &= ~ONLCR;
+
+        // set baud rate
+        if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
+            PX4_ERR("CFG: %d ISPD", termios_state);
+            break;
+        }
+
+        if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
+            PX4_ERR("CFG: %d OSPD\n", termios_state);
+            break;
+        }
+
+        if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
+            PX4_ERR("baud %d ATTR", termios_state);
+            break;
+        }
+
+        uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
+        uart_config.c_cflag &= ~CSIZE;
+        uart_config.c_cflag |= CS8;			// 8-bit characters
+        uart_config.c_cflag &= ~PARENB;			// no parity bit
+        uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
+        uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
+
+        // setup for non-canonical mode
+        uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        uart_config.c_oflag &= ~OPOST;
+
+        // fetch bytes as they become available
+        uart_config.c_cc[VMIN] = 1;
+        uart_config.c_cc[VTIME] = 1;
+
+        if (_fd < 0) {
+            PX4_ERR("FAIL: fd");
+            break;
+        }
+    } while (0);
 }
 
 void SimpleVolzOutput::Run()
 {
 	if (should_exit()) {
+        if (_fd != -1) {
+            ::close(_fd);
+            _fd = -1;
+        }
+
 		ScheduleClear();
 		exit_and_cleanup();
 		return;
@@ -72,165 +153,349 @@ void SimpleVolzOutput::Run()
 	perf_begin(_loop_perf);
 	perf_count(_loop_interval_perf);
 
-
     // fds initialized?
     if (_fd < 0) {
-        do { // create a scope to handle exit conditions using break
-
-            _fd = ::open(_port, O_RDWR | O_NOCTTY);
-
-            if (_fd < 0) {
-                PX4_ERR("Error opening fd");
-            }
-
-            // baudrate 115200, 8 bits, no parity, 1 stop bit
-            unsigned speed = B115200;
-            termios uart_config{};
-            int termios_state{};
-
-            tcgetattr(_fd, &uart_config);
-
-            // clear ONLCR flag (which appends a CR for every LF)
-            uart_config.c_oflag &= ~ONLCR;
-
-            // set baud rate
-            if ((termios_state = cfsetispeed(&uart_config, speed)) < 0) {
-                PX4_ERR("CFG: %d ISPD", termios_state);
-                break;
-            }
-
-            if ((termios_state = cfsetospeed(&uart_config, speed)) < 0) {
-                PX4_ERR("CFG: %d OSPD\n", termios_state);
-                break;
-            }
-
-            if ((termios_state = tcsetattr(_fd, TCSANOW, &uart_config)) < 0) {
-                PX4_ERR("baud %d ATTR", termios_state);
-                break;
-            }
-
-            uart_config.c_cflag |= (CLOCAL | CREAD);	// ignore modem controls
-            uart_config.c_cflag &= ~CSIZE;
-            uart_config.c_cflag |= CS8;			// 8-bit characters
-            uart_config.c_cflag &= ~PARENB;			// no parity bit
-            uart_config.c_cflag &= ~CSTOPB;			// only need 1 stop bit
-            uart_config.c_cflag &= ~CRTSCTS;		// no hardware flowcontrol
-
-            // setup for non-canonical mode
-            uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-            uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-            uart_config.c_oflag &= ~OPOST;
-
-            // fetch bytes as they become available
-            uart_config.c_cc[VMIN] = 1;
-            uart_config.c_cc[VTIME] = 1;
-
-            if (_fd < 0) {
-                PX4_ERR("FAIL: laser fd");
-                break;
-            }
-        } while (0);
-
+        init_fd();
     }
 
-    uint8_t* cli_cmd = _cli_cmd.load();
+    if (!waiting_for_resp) {  // if we are not currently waiting for a response, commands can be sent
+        if (_armed.load()) {  // send the next control output if the driver is armed
+            send_next_ctrl_cmd();
 
-    // if CLI commands are available, send them
-    if (cli_cmd) {
-        ::write(_fd, cli_cmd, VOLZ_CMD_LEN);
-        _cli_cmd.store(nullptr);  // delete previous command
-    }
+        } else {  // if the driver is not armed, handle CLI-related commands
+//            if (_checking_connected_servos.load()) {  // if a check for connected servos is being run, proceed
+//                uint8_t cmd[DATA_FRAME_SIZE];
+//                uint8_t id = current_id.load();
+//                set_id(id, id, cmd);  // send command to set ID to itself (does nothing, but initiates response)
+//                write_cmd(cmd);
+//                current_id.store(id + 1);
+//
+//            } else {  // check for regular CLI commands
+                uint8_t *cli_cmd = _cli_cmd.load();
 
-    // if there are no CLI commands, send position commands from flight controller
-    else {
-        // retrieve actuator controls
-        _actuator_controls_sub.update();
-        const actuator_controls_s &ctrl = _actuator_controls_sub.get();
-
-        // mix the actuator controls
-        int pos[NUM_SERVOS];
-        mix(ctrl.control, pos);
-
-        // send all actuator commands to the respective servos
-        for (int i = 0; i < NUM_SERVOS; i++) {
-            uint8_t cmd[VOLZ_CMD_LEN];
-            pos_cmd(i, pos[i], cmd);
-            ::write(_fd, cmd, VOLZ_CMD_LEN);
+                if (cli_cmd) { // if CLI commands are available, send them
+                    write_cmd(cli_cmd);
+                    _cli_cmd.store(nullptr);  // delete the command after sending
+                }
+//            }
         }
+    } else {  // if we are waiting for a response, check if one arrived
+        check_for_resp();
     }
+
+    // if we have been waiting for too long, move on and send an error report
+    if (waiting_for_resp && hrt_elapsed_time(&last_cmd_time) > resp_timeout) {
+        waiting_for_resp = false;
+
+        if (_armed.load() && last_cmd[0] == SET_EXTENDED_POS_CMD_CODE) {
+            if (last_cmd[1] == 1) {
+                _first_timestamp = hrt_absolute_time();
+            }
+
+            _outputs[last_cmd[1] - 1] = volz_error_s::TIMEOUT;
+//
+//            if (last_cmd[1] >= NUM_SERVOS) {
+//                send_output_msg();
+//            }
+        } // else if (!_armed.load() && _checking_connected_servos.load() && last_cmd[0] == SET_ID_CMD_CODE) {
+//            if (last_cmd[1] == 1) {
+//                _first_timestamp = hrt_absolute_time();
+//            }
+//
+//            _connected[last_cmd[1] - 1] = false;
+//
+//            if (last_cmd[1] >= ID_MAX) {
+//                send_connected_msg();
+//            }
+//        }
+//
+        send_timeout_msg();
+    }
+
+    if (_armed.load() && !waiting_for_resp && last_cmd[1] >= NUM_SERVOS) {
+        send_output_msg();
+    } // else if (!_armed.load() && !waiting_for_resp && last_cmd[1] >= ID_MAX && _checking_connected_servos.load()) {
+//        send_connected_msg();
+//    }
 
 	perf_end(_loop_perf);
 }
 
-int SimpleVolzOutput::highbyte(int value) {
-    return (value >> 8) & 0xff;
-}
+// TODO: maybe this can replace the connected stuff
+void SimpleVolzOutput::send_last_valid_resp_msg() {
+    volz_last_resp_s &report = _volz_last_resp_pub.get();
+    report.timestamp = hrt_absolute_time();
 
-int SimpleVolzOutput::lowbyte(int value) {
-    return value & 0xff;
-}
-
-int SimpleVolzOutput::generate_crc(int cmd, int actuator_id, int arg_1, int arg_2)	{
-    unsigned short int crc=0xFFFF; // init value of result
-    int command[4]={cmd,actuator_id,arg_1,arg_2}; // command, ID, argument1, argument 2
-    int x,y;
-
-    for(x=0; x<4; x++)	{
-        crc= ( ( command[x] <<8 ) ^ crc);
-        for ( y=0; y<8; y++ )	{
-            if ( crc & 0x8000 )
-                crc = (crc << 1) ^ 0x8005;
-            else
-                crc = crc << 1;
+    for (int i = 0; i < ID_MAX; i++) {
+        if (_last_valid_resp_time[i] > 0) {
+            report.t_since_valid_resp[i] = ((float)hrt_elapsed_time(&_last_valid_resp_time[i])) / 1000000;
+        } else {
+            report.t_since_valid_resp[i] = -1;
         }
     }
 
-    return crc;
+    _volz_last_resp_pub.update();
 }
 
-void SimpleVolzOutput::pos_cmd(int id, int pos, uint8_t* cmd) {
-    // map position to range VOLZ_POS_MIN to VOLZ_POS_MAX
-    int arg = VOLZ_POS_MIN + pos * (VOLZ_POS_MAX - VOLZ_POS_MIN) / (MAX_VALUE - MIN_VALUE);
-    uint8_t arg_1 = highbyte(arg);
-    uint8_t arg_2 = lowbyte(arg);
-    int crc = generate_crc(POS_CMD, id, arg_1, arg_2);
+void SimpleVolzOutput::send_timeout_msg() {
+    volz_error_s &report = _volz_error_pub.get();
 
-    cmd[0] = POS_CMD;
-    cmd[1] = id;
-    cmd[2] = arg_1;
-    cmd[3] = arg_2;
-    cmd[4] = highbyte(crc);
-    cmd[5] = lowbyte(crc);
+    report.timestamp = hrt_absolute_time();
+    report.type = volz_error_s::TIMEOUT;
+
+    report.cmd_code = last_cmd[0];
+    report.cmd_id = last_cmd[1];
+    report.cmd_arg1 = last_cmd[2];
+    report.cmd_arg2 = last_cmd[3];
+
+    report.resp_code = 0;
+    report.resp_id = 0;
+    report.resp_arg1 = 0;
+    report.resp_arg2 = 0;
+
+    _volz_error_pub.update();
+
+    _n_timeout.store(_n_timeout.load() + 1);
+
+    waiting_for_resp = false;
 }
 
-void SimpleVolzOutput::set_id(int old_id, int new_id, uint8_t* cmd) {
-    uint8_t arg_1 = highbyte(new_id);
-    uint8_t arg_2 = lowbyte(new_id);
-    int crc = generate_crc(SET_ID, old_id, arg_1, arg_2);
+// TODO: are the signs for the ailerons and elevators reversed in the right way?
+void SimpleVolzOutput::mix(const float* control, uint16_t* pos)
+{
+    uint16_t volz_range = EXTENDED_POS_MAX - EXTENDED_POS_MIN;
 
-    cmd[0] = SET_ID;
-    cmd[1] = old_id;
-    cmd[2] = arg_1;
-    cmd[3] = arg_2;
-    cmd[4] = highbyte(crc);
-    cmd[5] = lowbyte(crc);
-}
+    float aileron_offset = 18.0 / 90.0;
 
-void SimpleVolzOutput::mix(const float* control, int* pos) {
     // aileron outputs
-    pos[0] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_ROLL] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
-    pos[1] = (int)(MIN_VALUE + (1 - control[actuator_controls_s::INDEX_ROLL]) / 2 * (MAX_VALUE - MIN_VALUE));
+    float aileron_1_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], aileron_offset);
+    float aileron_2_ctrl = -apply_ctrl_offset(control[actuator_controls_s::INDEX_ROLL], -aileron_offset);
+    pos[0] = (uint16_t)(EXTENDED_POS_MIN + (aileron_1_ctrl + 1) / 2 * volz_range);  // port aileron
+    pos[1] = (uint16_t)(EXTENDED_POS_MIN + (aileron_2_ctrl + 1) / 2 * volz_range);  // starboard aileron
 
     // elevator outputs
-    pos[2] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
-    pos[3] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[2] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);  // starboard elevator
+    pos[3] = (uint16_t)(EXTENDED_POS_MIN + (-control[actuator_controls_s::INDEX_PITCH] + 1) / 2 * volz_range);  // port elevator
 
     // rudder output
-    pos[4] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_YAW] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[4] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_YAW] + 1) / 2 * volz_range);
 
     // wheel brake output
-    pos[5] = (int)(MIN_VALUE + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * (MAX_VALUE - MIN_VALUE));
+    pos[5] = (uint16_t)(EXTENDED_POS_MIN + (control[actuator_controls_s::INDEX_LANDING_GEAR] + 1) / 2 * volz_range);
 }
+
+float SimpleVolzOutput::apply_ctrl_offset(float control_val, float center_offset)
+{
+    if (control_val > 0) {
+        return center_offset + control_val * (1 - center_offset);
+    } else {
+        return center_offset + control_val * (1 + center_offset);
+    }
+}
+
+void SimpleVolzOutput::write_cmd(uint8_t* cmd)
+{
+    ::write(_fd, cmd, DATA_FRAME_SIZE);
+    waiting_for_resp = true;
+    last_cmd_time = hrt_absolute_time();
+
+    last_cmd[0] = cmd[0];
+    last_cmd[1] = cmd[1];
+    last_cmd[2] = cmd[2];
+    last_cmd[3] = cmd[3];
+    last_cmd[4] = cmd[4];
+    last_cmd[5] = cmd[5];
+}
+
+void SimpleVolzOutput::send_next_ctrl_cmd()
+{
+    // retrieve actuator controls
+    _actuator_controls_sub.update();
+    const actuator_controls_s &ctrl = _actuator_controls_sub.get();
+
+    // mix the actuator controls
+    uint16_t pos[NUM_SERVOS];
+    mix(ctrl.control, pos);
+
+    // send actuator command to the current servo
+    uint8_t cmd[DATA_FRAME_SIZE];
+    uint8_t id = current_id.load();
+    set_extended_pos(id, pos[id - 1], cmd);
+    write_cmd(cmd);
+
+    current_id.store(id + 1);
+
+    // TODO: remove this!
+    if (current_id.load() > NUM_SERVOS) {
+        current_id.store(1);
+    }
+}
+
+// TODO: the values in the output vector don't seem quite right (never reach high values)
+void SimpleVolzOutput::send_output_msg() {
+    volz_outputs_s &report = _volz_outputs_pub.get();
+
+    report.first_timestamp = _first_timestamp;
+    report.timestamp = hrt_absolute_time();
+
+    report.n_outputs = NUM_SERVOS;
+
+    for (int i = 0; i < NUM_SERVOS; i++) {
+        report.outputs[i] = _outputs[i];
+    }
+
+    _volz_outputs_pub.update();
+}
+
+void SimpleVolzOutput::send_connected_msg() {
+    volz_connected_s &report = _volz_connected_pub.get();
+
+    report.first_timestamp = _first_timestamp;
+    report.timestamp = hrt_absolute_time();
+
+    for (int i = 0; i < ID_MAX; i++) {
+        report.connected[i] = _connected[i];
+    }
+
+    _volz_connected_pub.update();
+
+    _checking_connected_servos.store(false);
+    current_id.store(1);
+}
+
+void SimpleVolzOutput::send_invalid_resp_msg(uint8_t *readbuf) {
+    volz_error_s &report = _volz_error_pub.get();
+
+    report.timestamp = hrt_absolute_time();
+    report.type = volz_error_s::INVALID_RESP;
+
+    report.cmd_code = last_cmd[0];
+    report.cmd_id = last_cmd[1];
+    report.cmd_arg1 = last_cmd[2];
+    report.cmd_arg2 = last_cmd[3];
+
+    report.resp_code = readbuf[0];
+    report.resp_id = readbuf[1];
+    report.resp_arg1 = readbuf[2];
+    report.resp_arg2 = readbuf[3];
+
+    _volz_error_pub.update();
+
+    _n_invalid_resp.store(_n_invalid_resp.load() + 1);
+}
+
+void SimpleVolzOutput::check_for_resp()
+{
+    // check how many bytes are available and return if there are less than 6
+    int bytes_available = 0;
+    ::ioctl(_fd, FIONREAD, (unsigned long)&bytes_available);
+    if (bytes_available < DATA_FRAME_SIZE) {
+        return;
+    }
+
+    waiting_for_resp = false;  // we have received a response, so we are no longer waiting
+
+    // read the response
+    uint8_t readbuf[DATA_FRAME_SIZE];
+    int ret = ::read(_fd, &readbuf[0], DATA_FRAME_SIZE);
+    if (ret < 0) {
+        PX4_ERR("read error: %d", ret);
+        return;
+    }
+
+    // analyse the response
+    bool valid = false;
+
+    switch (readbuf[0]) {
+        case SET_EXTENDED_POS_RESP_CODE:
+            valid = valid_resp_set_extended_pos(readbuf, last_cmd);
+            uint16_t data = (readbuf[2] >> 8) + readbuf[3];
+
+            // if this is a valid response and we are in armed mode, store the output for publication
+            if (_armed.load()) {
+                if (valid) {
+                    _outputs[readbuf[1] - 1] = data;
+                } else {
+                    _outputs[readbuf[1] - 1] = volz_error_s::INVALID_RESP;
+                }
+
+                if (readbuf[1] == 1) {  // if this is the first servo in a series
+                    _first_timestamp = hrt_absolute_time();
+                }
+            }
+
+            break;
+
+//        case SET_ID_RESP_CODE:
+//            valid = valid_resp_set_id(readbuf, last_cmd);
+//
+//            if (_checking_connected_servos.load()) {  // if the response corresponds to a check for connection
+//                _connected[readbuf[1] - 1] = valid;
+//
+//                if (readbuf[1] == 1) {  // if this is the first servo in a series
+//                    _first_timestamp = hrt_absolute_time();
+//                }
+//            }
+//            break;
+//
+//        case SET_FAILSAFE_POS_RESP_CODE:
+//            valid = valid_resp_set_failsafe_pos(readbuf, last_cmd);
+//            break;
+//
+//        case SET_FAILSAFE_TIME_RESP_CODE:
+//            valid = valid_resp_set_failsafe_time(readbuf, last_cmd);
+//            break;
+//
+//        case SET_CURRENT_POS_AS_FAILSAFE_RESP_CODE:
+//            valid = valid_resp_set_current_pos_as_failsafe(readbuf, last_cmd);
+//            break;
+//
+//        case SET_CURRENT_POS_AS_ZERO_RESP_CODE:
+//            valid = valid_resp_set_current_pos_as_zero(readbuf, last_cmd);
+//            break;
+//
+//        case RESTORE_DEFAULTS_RESP_CODE:
+//            valid = valid_resp_restore_defaults(readbuf, last_cmd);
+//            break;
+    }
+
+    if (!valid) {  // send out uORB message if an invalid response was received
+        send_invalid_resp_msg(readbuf);
+    } else {
+        _last_valid_resp_time[readbuf[1] - 1] = hrt_absolute_time();
+        send_last_valid_resp_msg();
+        _n_valid_resp.store(_n_valid_resp.load() + 1);
+    }
+}
+
+void SimpleVolzOutput::send_cmd_threadsafe(uint8_t *cmd)
+{
+    if (!_armed.load()) {
+        _cli_cmd.store(cmd);
+
+        while (_cli_cmd.load()) {
+            px4_usleep(1000);
+        }
+    }
+}
+
+void SimpleVolzOutput::arm(bool armed) {
+    if (!armed && _armed.load()) {  // delete old CLI commands before disarming
+        send_cmd_threadsafe(nullptr);
+
+    } else if (armed && !_armed.load()) {  // set current ID to 1 before arming
+        current_id.store(1);
+    }
+
+    _armed.store(armed);
+}
+
+void SimpleVolzOutput::check_connected_servos() {
+    if (!_armed.load()) {  // only allow for checking on servos if the driver is disarmed
+        current_id.store(1);  // reset current ID to 1 to start at the beginning
+        _checking_connected_servos.store(true);
+    }
+};
 
 int SimpleVolzOutput::task_spawn(int argc, char *argv[])
 {
@@ -259,36 +524,221 @@ int SimpleVolzOutput::print_status()
 {
 	perf_print_counter(_loop_perf);
 	perf_print_counter(_loop_interval_perf);
+	PX4_INFO("armed: %d", get_instance()->_armed.load());
+	PX4_INFO("timeouts: %d", get_instance()->_n_timeout.load());
+    PX4_INFO("invalid responses: %d", get_instance()->_n_invalid_resp.load());
+    PX4_INFO("valid responses: %d", get_instance()->_n_valid_resp.load());
 	return 0;
 }
 
+// TODO: add support for more CLI commands
 int SimpleVolzOutput::custom_command(int argc, char *argv[])
 {
-    if (strcmp(argv[0], "set_id") == 0) {
-        uint8_t cmd[VOLZ_CMD_LEN];
-        set_id(VOLZ_ID_UNKNOWN, strtol(argv[1], 0, 0), cmd);
-        get_instance()->_cli_cmd.store(cmd);
+    const char *verb = argv[0];
+
+    if (strcmp(verb, "set_pos") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter a position between %d and %d", EXTENDED_POS_MIN, EXTENDED_POS_MAX);
+            return print_usage();
+        }
+        uint16_t pos = strtol(argv[1], 0, 0);
+        if (pos < EXTENDED_POS_MIN || EXTENDED_POS_MAX < pos) {
+            PX4_WARN("enter a position between %d and %d", EXTENDED_POS_MIN, EXTENDED_POS_MAX);
+            return print_usage();
+        }
+
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 3) {
+            id = strtol(argv[2], 0, 0);
+        }
+
+        set_extended_pos(id, pos, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+//        float control[NUM_SERVOS];
+//        control[0] = 0;
+//        control[1] = 0;
+//        control[2] = 0;
+//        control[3] = 0;
+//        control[4] = 0;
+//        control[5] = 0;
+//
+//        uint16_t posg[NUM_SERVOS];
+//        get_instance()->mix(control, posg);
+//        PX4_INFO("sdfgsfuhsdf, %d, %d, %d, %d, %d, %d", posg[0], posg[1], posg[2], posg[3], posg[4], posg[5]);
+
+    } else if (strcmp(verb, "set_id") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter an ID between %d and %d", ID_MIN, ID_MAX);
+            return print_usage();
+        }
+        uint8_t new_id = strtol(argv[1], 0, 0);
+        if (new_id < ID_MIN || ID_MAX < new_id) {
+            PX4_WARN("enter an ID between %d and %d", ID_MIN, ID_MAX);
+            return print_usage();
+        }
+
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t old_id = ID_BROADCAST;
+
+        if (argc >= 3) {
+            old_id = strtol(argv[2], 0, 0);
+        }
+
+        set_id(old_id, new_id, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "set_failsafe_pos") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter a position between %d and %d", EXTENDED_POS_MIN, EXTENDED_POS_MAX);
+            return print_usage();
+        }
+        uint16_t pos = strtol(argv[1], 0, 0);
+        if (pos < EXTENDED_POS_MIN || EXTENDED_POS_MAX < pos) {
+            PX4_WARN("enter a position between %d and %d", EXTENDED_POS_MIN, EXTENDED_POS_MAX);
+            return print_usage();
+        }
+
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 3) {
+            id = strtol(argv[2], 0, 0);
+        }
+
+        set_failsafe_pos(id, pos, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "set_failsafe_time") == 0) {
+        if (argc < 2) {
+            PX4_WARN("enter a time between %d and %d", FAILSAFE_TIME_MIN, FAILSAFE_TIME_MAX);
+            return print_usage();
+        }
+        uint8_t time = strtol(argv[1], 0, 0);
+        if (time < FAILSAFE_TIME_MIN || FAILSAFE_TIME_MAX < time) {  // TODO: allow for deactivation
+            PX4_WARN("enter a time between %d and %d", FAILSAFE_TIME_MIN, FAILSAFE_TIME_MAX);
+            return print_usage();
+        }
+
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 3) {
+            id = strtol(argv[2], 0, 0);
+        }
+
+        set_failsafe_time(id, time, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "set_current_pos_as_failsafe") == 0) {
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 2) {
+            id = strtol(argv[1], 0, 0);
+        }
+
+        set_current_pos_as_failsafe(id, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "set_current_pos_as_zero") == 0) {
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 2) {
+            id = strtol(argv[1], 0, 0);
+        }
+
+        set_current_pos_as_zero(id, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "restore_defaults") == 0) {
+        uint8_t cmd[DATA_FRAME_SIZE];
+        uint8_t id = ID_BROADCAST;
+
+        if (argc >= 2) {
+            id = strtol(argv[1], 0, 0);
+        }
+
+        restore_defaults(id, cmd);
+        get_instance()->send_cmd_threadsafe(cmd);
+
+    } else if (strcmp(verb, "arm") == 0) {
+        if (get_instance()->_armed.load()) {
+            PX4_INFO("already armed");
+        }
+        get_instance()->arm(true);
+
+    } else if (strcmp(verb, "disarm") == 0) {
+        if (!get_instance()->_armed.load()) {
+            PX4_INFO("already disarmed");
+        }
+        get_instance()->arm(false);
+
+    } else if (strcmp(verb, "check_connected") == 0) {
+        get_instance()->check_connected_servos();
+    } else {
+        return print_usage("unknown command");
     }
-	return print_usage("unknown command");
+    return 0;
 }
 
+// TODO: describe newly added CLI commands
 int SimpleVolzOutput::print_usage(const char *reason)
 {
 	if (reason) {
 		PX4_WARN("%s\n", reason);
 	}
-
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
 ### Description
-Simple module to send position commands for Volz DA22 servo via the TELEM3 (UART/I2C) port.
+Driver to send position commands for Volz DA22 actuators via the TELEM3 (UART/I2C) port.
+The mixer is hard-coded to match the servo layout of AeroDelft's Phoenix aircraft.
+The different control surfaces are identified by the ID of the corresponding servos. The assignment is as follows:
+0x01 - left aileron
+0x02 - right aileron
+0x03 - elevator 1
+0x04 - elevator 2
+0x05 - rudder
+0x06 - wheel brake
 
-)DESCR_STR");
+The actuator ID is often an optional argument for commands. If no ID is provided, the command is broadcasted to all servos.
+
+)DESCR_STR"); // TODO: instead of broadcasting commands, should they be sent sequentially?
 
 	PRINT_MODULE_USAGE_NAME("simple_volz_output", "template");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set the the ID of all connected Volz servos");
-	PRINT_MODULE_USAGE_ARG("<new_id>", "Specify the new ID", false);
+
+	PRINT_MODULE_USAGE_COMMAND_DESCR("set_pos", "Command actuator to a given position");
+	PRINT_MODULE_USAGE_ARG("<pos>", "New commanded position", false);
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+	PRINT_MODULE_USAGE_COMMAND_DESCR("set_id", "Set a new ID to an actuator");
+	PRINT_MODULE_USAGE_ARG("<new_id>", "New actuator ID", false);
+	PRINT_MODULE_USAGE_ARG("<old_id>", "Actuator ID", true);
+
+	PRINT_MODULE_USAGE_COMMAND_DESCR("set_failsafe_pos", "Set actuator failsafe position");
+    PRINT_MODULE_USAGE_ARG("<pos>", "Actuator's new failsafe position", false);
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+    PRINT_MODULE_USAGE_COMMAND_DESCR("set_failsafe_time", "Set actuator failsafe timeout");
+    PRINT_MODULE_USAGE_ARG("<time>", "Actuator's new failsafe timeout", false);
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+    PRINT_MODULE_USAGE_COMMAND_DESCR("set_current_pos_as_failsafe", "Set an actuator's current position as its new failsafe position");
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+    PRINT_MODULE_USAGE_COMMAND_DESCR("set_current_pos_as_zero", "Set an actuator's current position as its new mid-position (zero)");
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+    PRINT_MODULE_USAGE_COMMAND_DESCR("restore_defaults", "Reset settings of an actuator to factory default values");
+    PRINT_MODULE_USAGE_ARG("<id>", "Actuator ID", true);
+
+    PRINT_MODULE_USAGE_COMMAND_DESCR("arm", "Activates position commands from flight controller and disables CLI commands");
+    PRINT_MODULE_USAGE_COMMAND_DESCR("disarm", "Deactivates position commands from flight controller and enables CLI commands");
+    PRINT_MODULE_USAGE_COMMAND_DESCR("check_connected", "Sends a volz_connected message indicating which servos are connected");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

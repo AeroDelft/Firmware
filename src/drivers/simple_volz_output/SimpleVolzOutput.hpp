@@ -40,13 +40,21 @@
 #include <px4_platform_common/posix.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 #include <px4_platform_common/atomic.h>
-#include <uORB/topics/orb_test.h>
+#include <px4_platform_common/getopt.h>
 #include <uORB/topics/sensor_accel.h>
 #include <uORB/topics/actuator_controls.h>
-#include <uORB/Publication.hpp>
+#include <uORB/topics/volz_connected.h>
+#include <uORB/topics/volz_error.h>
+#include <uORB/topics/volz_last_resp.h>
+#include <uORB/topics/volz_outputs.h>
+#include <uORB/PublicationMulti.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <termios.h>
+
+#include "volz_protocol.h"
+
+// TODO: delete the other volz module and rename this to simply volz. Also make sure it is started automatically
 
 class SimpleVolzOutput : public ModuleBase<SimpleVolzOutput>, public ModuleParams, public px4::ScheduledWorkItem
 {
@@ -68,38 +76,63 @@ public:
 	int print_status() override;
 
 	static const int NUM_SERVOS = 6;
-
-    static const int VOLZ_CMD_LEN = 6;
-    static const int VOLZ_ID_UNKNOWN = 0x1F;
-    static const int POS_CMD = 0xDD;
-    static const int SET_ID = 0xAA;
-    static const int VOLZ_POS_MIN = 0x04A1;
-    static const int VOLZ_POS_MAX = 0x0B60;
-
-    static const uint16_t DISARMED_VALUE = 0;
-    static const uint16_t MIN_VALUE = DISARMED_VALUE + 1;
-    static const uint16_t MAX_VALUE = MIN_VALUE + 1000;
+	static const int SERVO_UPDATE_FREQ = 50; // Hz
+	static const int TIMEOUT_FACTOR = 3;
 
 private:
 	void Run() override;
 
-	uORB::Publication<orb_test_s> _orb_test_pub{ORB_ID(orb_test)};
+    uORB::PublicationMultiData<volz_connected_s> _volz_connected_pub{ORB_ID(volz_connected)};
+    uORB::PublicationMultiData<volz_error_s> _volz_error_pub{ORB_ID(volz_error)};
+    uORB::PublicationMultiData<volz_last_resp_s> _volz_last_resp_pub{ORB_ID(volz_last_resp)};
+    uORB::PublicationMultiData<volz_outputs_s> _volz_outputs_pub{ORB_ID(volz_outputs)};
 
-	uORB::SubscriptionData<sensor_accel_s> _sensor_accel_sub{ORB_ID(sensor_accel)};
     uORB::SubscriptionData<actuator_controls_s> _actuator_controls_sub{ORB_ID(actuator_controls_0)};
 
 	perf_counter_t	_loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
 	perf_counter_t	_loop_interval_perf{perf_alloc(PC_INTERVAL, MODULE_NAME": interval")};
 
 	int _fd{-1};
-	const char *_port = "/dev/ttyS3";
+	const char *_port = "/dev/ttyS3";  // TODO: don't forget to switch back to TELEM2
+	void init_fd();
 
-	static int highbyte(int value);
-	static int lowbyte(int value);
-	static int generate_crc(int cmd, int actuator_id, int arg_1, int arg_2);
-	static void pos_cmd(int id, int pos, uint8_t* cmd);
-	static void set_id(int old_id, int new_id, uint8_t* cmd);
-	void mix(const float* control, int* pos);
+	void mix(const float* control, uint16_t* pos);
+	float apply_ctrl_offset(float control_val, float center_offset);
+	void send_next_ctrl_cmd();
+	void write_cmd(uint8_t* cmd);
+	void check_for_resp();
+
+	px4::atomic<uint8_t> current_id{1};
+    bool waiting_for_resp{false};
+    uint8_t last_cmd[DATA_FRAME_SIZE];
+    hrt_abstime last_cmd_time{0};
+
+    uint64_t loop_interval = 1000000/SERVO_UPDATE_FREQ/NUM_SERVOS;  // microseconds
+    uint64_t resp_timeout = loop_interval * TIMEOUT_FACTOR;  // microseconds
 
     px4::atomic<uint8_t*> _cli_cmd{nullptr};
+    void send_cmd_threadsafe(uint8_t* cmd);
+
+    px4::atomic<bool> _armed{false};
+    void arm(bool armed);
+
+    bool _connected[ID_MAX];
+    px4::atomic<bool> _checking_connected_servos{false};
+    void check_connected_servos();
+    void send_connected_msg();
+
+    // TODO: double-check if we are at risk of an overflow error here
+    px4::atomic<uint32_t> _n_valid_resp{0};
+    px4::atomic<uint32_t> _n_invalid_resp{0};
+    px4::atomic<uint32_t> _n_timeout{0};
+
+    uint64_t _first_timestamp{0};
+    uint16_t _outputs[NUM_SERVOS];
+    void send_output_msg();
+
+    void send_timeout_msg();
+    void send_invalid_resp_msg(uint8_t *readbuf);
+
+    uint64_t _last_valid_resp_time[ID_MAX];
+    void send_last_valid_resp_msg();
 };

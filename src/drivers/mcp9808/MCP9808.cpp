@@ -319,7 +319,7 @@ extern "C" int mcp9808_main(int argc, char *argv[])
         return -1;
     }
 
-    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_BARO_DEVTYPE_MPL3115A2);
+    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_TEMP_DEVTYPE_MCP9808);
 
     if (!strcmp(verb, "start")) {
         return ThisDriver::module_start(cli, iterator);
