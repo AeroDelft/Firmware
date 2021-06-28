@@ -57,16 +57,16 @@
 
 #define XEN5320_BASE_ADDRESS       0x27 // The arduino joins the bus with specified adress: 0x27
 
-#define MCP9808_REG_AMB_TEMP       0x05 // Why 4 addresses?
+#define MCP9808_REG_AMB_TEMP       0x05 // Why 4 addresses? deze waren wat functionaliteiten voor de sensors. Zal anders zijn voor die van mij en miss niet nodig
 #define MCP9808_REG_DEV_ID         0x07 //
 #define MCP9808_DEV_ID             0x04 ///
 
-#define TEMP_BASE_DEVICE_PATH      "/dev/temp" //
+#define HYD_BASE_DEVICE_PATH      "/dev/hydrogen" //
 
 #define XEN5320_CONVERSION_INTERVAL	10000	/* microseconds */
 
 
-class XEN5320 : public device::I2C, public I2CSPIDriver<MCP9808> //
+class XEN5320 : public device::I2C, public I2CSPIDriver<XEN5320> //
 {
 public:
     XEN5320(I2CSPIBusOption bus_option, const int bus, int bus_frequency, int address = XEN5320_BASE_ADDRESS); // declare XEN5320_BASE_ADDRESS as default?
@@ -90,6 +90,8 @@ private:
     int measure();
     int collect();
 
+    double perc(double sensor_value);
+
     uORB::PublicationMultiData<sensor_hydrogen_s>	_sensor_hydrogen_pub;
 
     int			_class_device_instance{-1};
@@ -106,10 +108,10 @@ XEN5320::XEN5320(I2CSPIBusOption bus_option, const int bus, int bus_frequency, i
         I2CSPIDriver(MODULE_NAME, px4::device_bus_to_wq(get_device_id()), bus_option, bus, address),
         _sensor_hydrogen_pub{ORB_ID(sensor_hydrogen), ORB_PRIO_DEFAULT}, // snap niet helemaal wat hier gebeurt. is dit onderdeel v constructor definition?
         _sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": read")),
-        _measure_perf(perf_alloc(PC_ELAPSED, MO1DULE_NAME": measure")),
+        _measure_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": measure")),
         _comms_errors(perf_alloc(PC_COUNT, MODULE_NAME": com_err"))
 {
-    _class_device_instance = register_class_devname(TEMP_BASE_DEVICE_PATH); // moet ik nog aanpassen, maar wat is dit path precies?
+    _class_device_instance = register_class_devname(HYD_BASE_DEVICE_PATH); // moet ik nog aanpassen, maar wat is dit path precies?
     _sensor_hydrogen_pub.advertise();
 
     _sensor_hydrogen_pub.get().device_id = get_device_id();
@@ -118,7 +120,7 @@ XEN5320::XEN5320(I2CSPIBusOption bus_option, const int bus, int bus_frequency, i
 XEN5320::~XEN5320()
 {
     if (_class_device_instance != -1) {
-        unregister_class_devname(TEMP_BASE_DEVICE_PATH, _class_device_instance); // same here, what exactly is this path?
+        unregister_class_devname(HYD_BASE_DEVICE_PATH, _class_device_instance); // same here, what exactly is this path?
     }
 
     _sensor_hydrogen_pub.unadvertise();
@@ -235,6 +237,16 @@ int XEN5320::measure()
     return PX4_OK;
 }
 
+double XEN5320::perc(double sensor_value)
+{
+    double percentage =  (sensor_value - 0.50) *  50.0;
+    if (percentage <  0.0)
+    {
+        percentage = 0.0;
+    }
+    return percentage;
+}
+
 int XEN5320::collect()
 {
     perf_begin(_sample_perf);
@@ -275,19 +287,9 @@ int XEN5320::collect()
     uint16_t raw_s1 = val[0] << 8 | val[1];
     uint16_t raw_s2 = val[2] << 8 | val[3];
 
-    float Vref = 3.3;
-    float sensor_output_1 = (float raw_s1) * (Vref/ 1024.0);
-    float sensor_output_2 = (float raw_s2) * (Vref/ 1024.0);
-
-    float perc(sensor_value)
-    {
-        percentage =  (sensor_value - 0.5) * 50;
-        if (percentage < 0.0)
-        {
-            percentage = 0.0;
-        }
-        return percentage;
-    }
+    double Vref = 3.3;
+    double sensor_output_1 = ( (double) raw_s1) * (Vref/(double) 1024.0);
+    double sensor_output_2 = ( (double) raw_s2) * (Vref/(double) 1024.0);
 
     float hydrogen_value_1 = perc(sensor_output_1);
     float hydrogen_value_2 = perc(sensor_output_2);
@@ -296,8 +298,9 @@ int XEN5320::collect()
     sensor_hydrogen_s &report = _sensor_hydrogen_pub.get();
 
     report.timestamp_sample = timestamp_sample;
-    report.hydrogen_percentage = hydrogen_value_1;
-    //report.temperature = temp;
+    report.hydrogen_percentage1 = hydrogen_value_1;
+    report.hydrogen_percentage2 = hydrogen_value_2;
+
     report.timestamp = hrt_absolute_time();
     _sensor_hydrogen_pub.update();
 
@@ -347,7 +350,7 @@ extern "C" int xen5320_main(int argc, char *argv[])
     using ThisDriver = XEN5320;
     BusCLIArguments cli{true, false};
     cli.default_i2c_frequency = 400000;
-    cli.i2c_address = XEN5320_BASE_ADDRESS; // This is not in MPL3115A2
+    cli.i2c_address = XEN5320_BASE_ADDRESS;
 
     const char *verb = cli.parseDefaultArguments(argc, argv);
 
@@ -356,7 +359,7 @@ extern "C" int xen5320_main(int argc, char *argv[])
         return -1;
     }
 
-    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_BARO_DEVTYPE_MPL3115A2); //CHANGE!
+    BusInstanceIterator iterator(MODULE_NAME, cli, DRV_HYD_DEVTYPE_XEN5320);
 
     if (!strcmp(verb, "start")) {
         return ThisDriver::module_start(cli, iterator);

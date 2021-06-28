@@ -164,6 +164,7 @@
 
 // Custom sensor drivers
 #define DRV_TEMP_DEVTYPE_MCP9808 0x8a
+#define DRV_HYD_DEVTYPE_XEN5320 0x8b
 
 
 #define DRV_DEVTYPE_UNUSED		0xff
