@@ -1,0 +1,12 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\boards\\px4\\fmu-v5",
+    "\\msg",
+    "\\src\\drivers",
+    "\\src\\drivers\\mcp9808",
+    "\\src\\drivers\\powerpath"
+  ],
+  "SelectedNode": "\\msg\\CMakeLists.txt",
+  "PreviewInSolutionExplorer": false
+}

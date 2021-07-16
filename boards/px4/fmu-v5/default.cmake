@@ -63,6 +63,7 @@ px4_add_board(
 		mcp9808
 		simple_volz_output
 		xen5320
+		powerpath
 	MODULES
 		airspeed_selector
 		attitude_estimator_q
